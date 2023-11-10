@@ -91,9 +91,12 @@ fn keyboard_input_system(
 fn mouse_click_system(
     mut commands: Commands,
     mouse_button_input: Res<Input<MouseButton>>,
+    players: Query<&Transform, With<Player>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
+    let player = players.get_single().unwrap();
+
     if mouse_button_input.just_pressed(MouseButton::Left) {
         commands.spawn(BulletBundle {
             bullet: Bullet,
@@ -102,7 +105,7 @@ fn mouse_click_system(
                     .add(shape::Quad::new(Vec2::new(10., 10.)).into())
                     .into(),
                 material: materials.add(ColorMaterial::from(Color::RED)),
-                transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
+                transform: player.clone(),
                 ..default()
             },
         });
