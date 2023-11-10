@@ -1,12 +1,16 @@
+use std::net::{TcpListener, TcpStream};
+
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::window::PrimaryWindow;
 use rand::prelude::*;
-
+//
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup)
+        .add_systems(Startup, start_local_server)
+        .add_systems(Startup, maybe_connect_to_remote_server)
         .add_systems(Update, keyboard_input_system)
         .add_systems(Update, mouse_click_system)
         .add_systems(Update, bullet_moves_forward_system)
@@ -50,6 +54,12 @@ struct BulletBundle {
     mesh_bundle: MaterialMesh2dBundle<ColorMaterial>,
 }
 
+#[derive(Resource)]
+struct NetworkConnection(TcpStream);
+
+#[derive(Resource)]
+struct NetServer(TcpListener);
+
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -77,6 +87,17 @@ fn setup(
         transform: Transform::from_translation(Vec3::new(0., -500., -0.1)),
         ..default()
     });
+}
+
+fn start_local_server(mut commands: Commands) {
+    let listener = TcpListener::bind("0.0.0.0:3191").unwrap();
+    commands.insert_resource(NetServer(listener));
+}
+
+fn maybe_connect_to_remote_server(mut commands: Commands) {
+    let server = std::env::var("REMOTE_SERVER").unwrap_or("localhost:3191".to_string());
+    let connection = TcpStream::connect(server).unwrap();
+    commands.insert_resource(NetworkConnection(connection));
 }
 
 fn bullet_moves_forward_system(mut bullets: Query<&mut Transform, With<Bullet>>) {
@@ -198,6 +219,5 @@ fn bullet_hit_despawns_dummy(
                 commands.entity(bullet).despawn();
             }
         }
-        // despawn the bullet
     }
 }
