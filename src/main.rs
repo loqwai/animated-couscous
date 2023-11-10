@@ -1,6 +1,7 @@
 mod protos;
 
 use std::net::{TcpListener, TcpStream};
+use std::thread;
 
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
@@ -97,7 +98,22 @@ fn setup(
 
 fn start_local_server(mut commands: Commands) {
     let listener = TcpListener::bind("0.0.0.0:3191").unwrap();
-    commands.insert_resource(NetServer(listener));
+
+    commands.insert_resource(NetServer(listener.try_clone().unwrap()));
+
+    // Create a new handle that can belong to the thread
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            match stream {
+                Ok(stream) => {
+                    println!("New connection: {}", stream.peer_addr().unwrap());
+                }
+                Err(e) => {
+                    println!("Error: {}", e);
+                }
+            }
+        }
+    });
 }
 
 fn maybe_connect_to_remote_server(mut commands: Commands) {
@@ -228,4 +244,11 @@ fn bullet_hit_despawns_dummy(
     }
 }
 
-fn write_inputs_to_network(mut connection: ResMut<NetworkConnection>) {}
+fn write_inputs_to_network(
+    mut connection: ResMut<NetworkConnection>,
+    mouse_button_input: Res<Input<MouseButton>>,
+    keyboard_input: Res<Input<KeyCode>>,
+) {
+    // let mut input = applesauce::Input::new();
+    // input.mouse_button_pressed(mouse_button_input.pressed(MouseButton::Left));
+}
