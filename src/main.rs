@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
+use bevy::window::PrimaryWindow;
 
 fn main() {
     App::new()
@@ -66,7 +67,9 @@ fn setup(
 
 fn bullet_moves_forward_system(mut bullets: Query<&mut Transform, With<Bullet>>) {
     for mut bullet in bullets.iter_mut() {
-        bullet.translation.y += 1.;
+        // move bullet forward, taking it's rotation into account
+        let rotation = bullet.rotation * Vec3::X;
+        bullet.translation += rotation;
     }
 }
 
@@ -87,27 +90,57 @@ fn keyboard_input_system(
     }
 }
 
-// This system prints messages when you press or release the left mouse button:
 fn mouse_click_system(
+    commands: Commands,
+    mouse_button_input: Res<Input<MouseButton>>,
+    players: Query<&Transform, With<Player>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    meshes: ResMut<Assets<Mesh>>,
+    materials: ResMut<Assets<ColorMaterial>>,
+) {
+    mouse_click_system_fallible(
+        commands,
+        mouse_button_input,
+        players,
+        windows,
+        cameras,
+        meshes,
+        materials,
+    );
+}
+
+// This system prints messages when you press or release the left mouse button:
+fn mouse_click_system_fallible(
     mut commands: Commands,
     mouse_button_input: Res<Input<MouseButton>>,
     players: Query<&Transform, With<Player>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    let player = players.get_single().unwrap();
+) -> Option<()> {
+    let (camera, camera_transform) = cameras.get_single().ok()?;
+    let cursor = windows.get_single().ok()?.cursor_position()?;
+    let cursor_position = camera.viewport_to_world(camera_transform, cursor)?.origin;
+
+    let player = players.get_single().ok()?;
 
     if mouse_button_input.just_pressed(MouseButton::Left) {
+        let ray = cursor_position - player.translation;
+        let rotation = Quat::from_rotation_z(ray.y.atan2(ray.x));
+
         commands.spawn(BulletBundle {
             bullet: Bullet,
             mesh_bundle: MaterialMesh2dBundle {
                 mesh: meshes
-                    .add(shape::Quad::new(Vec2::new(10., 10.)).into())
+                    .add(shape::Quad::new(Vec2::new(40., 10.)).into())
                     .into(),
                 material: materials.add(ColorMaterial::from(Color::RED)),
-                transform: player.clone(),
+                transform: player.clone().with_rotation(rotation),
                 ..default()
             },
         });
     }
+    return Some(());
 }
