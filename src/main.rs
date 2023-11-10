@@ -1,9 +1,14 @@
+mod protos;
+
 use std::net::{TcpListener, TcpStream};
 
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::window::PrimaryWindow;
 use rand::prelude::*;
+
+use protos::generated::applesauce;
+
 //
 fn main() {
     App::new()
@@ -16,6 +21,7 @@ fn main() {
         .add_systems(Update, bullet_moves_forward_system)
         .add_systems(Update, ensure_dummy)
         .add_systems(Update, bullet_hit_despawns_dummy)
+        .add_systems(Update, write_inputs_to_network)
         .run();
 }
 
@@ -221,3 +227,5 @@ fn bullet_hit_despawns_dummy(
         }
     }
 }
+
+fn write_inputs_to_network(mut connection: ResMut<NetworkConnection>) {}
