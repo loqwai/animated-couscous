@@ -10,3 +10,4 @@ opt-level = 1
 
 [dependencies]
 bevy = { version = "0.12.0", features = ["dynamic_linking"] }
+rand = "0.8.5"
