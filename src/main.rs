@@ -6,6 +6,7 @@ use std::thread;
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::window::PrimaryWindow;
+use protobuf::{CodedInputStream, Message};
 use rand::prelude::*;
 
 use protos::generated::applesauce;
@@ -16,7 +17,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
-        .add_systems(Startup, maybe_connect_to_remote_server)
+        .add_systems(Startup, connect_to_remote_server)
         .add_systems(Update, keyboard_input_system)
         .add_systems(Update, mouse_click_system)
         .add_systems(Update, bullet_moves_forward_system)
@@ -104,21 +105,20 @@ fn start_local_server(mut commands: Commands) {
     // Create a new handle that can belong to the thread
     thread::spawn(move || {
         for stream in listener.incoming() {
-            match stream {
-                Ok(stream) => {
-                    println!("New connection: {}", stream.peer_addr().unwrap());
-                }
-                Err(e) => {
-                    println!("Error: {}", e);
-                }
+            let mut stream = stream.unwrap();
+            let mut input_stream = CodedInputStream::new(&mut stream);
+            loop {
+                let input: applesauce::Input = input_stream.read_message().unwrap();
+                println!("Received input: {}", input.to_string());
             }
         }
     });
 }
 
-fn maybe_connect_to_remote_server(mut commands: Commands) {
+fn connect_to_remote_server(mut commands: Commands) {
     let server = std::env::var("REMOTE_SERVER").unwrap_or("localhost:3191".to_string());
     let connection = TcpStream::connect(server).unwrap();
+    println!("Connected to server");
     commands.insert_resource(NetworkConnection(connection));
 }
 
@@ -246,9 +246,30 @@ fn bullet_hit_despawns_dummy(
 
 fn write_inputs_to_network(
     mut connection: ResMut<NetworkConnection>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
     mouse_button_input: Res<Input<MouseButton>>,
-    keyboard_input: Res<Input<KeyCode>>,
+    // keyboard_input: Res<Input<KeyCode>>,
 ) {
-    // let mut input = applesauce::Input::new();
-    // input.mouse_button_pressed(mouse_button_input.pressed(MouseButton::Left));
+    if windows.get_single().unwrap().cursor_position().is_none() {
+        return;
+    }
+
+    let (camera, camera_transform) = cameras.get_single().unwrap();
+    let cursor = windows.get_single().unwrap().cursor_position().unwrap();
+    let cursor_position = camera
+        .viewport_to_world(camera_transform, cursor)
+        .unwrap()
+        .origin;
+
+    let mouse_button_pressed = mouse_button_input.just_pressed(MouseButton::Left);
+
+    let mut input = applesauce::Input::new();
+    input.mouse_position_x = cursor_position.x;
+    input.mouse_position_y = cursor_position.y;
+    input.mouse_button_pressed = mouse_button_pressed;
+
+    input
+        .write_length_delimited_to_writer(&mut connection.0)
+        .unwrap();
 }

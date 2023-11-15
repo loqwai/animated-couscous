@@ -1,8 +1,8 @@
 syntax = "proto3";
 
 message Input {
-  int32 mouse_position_x = 1;
-  int32 mouse_position_y = 2;
-  optional int32 mouse_button_pressed = 4;
-  optional string key_pressed = 3;
+  float mouse_position_x = 1;
+  float mouse_position_y = 2;
+  bool mouse_button_pressed = 3;
+  // required repeating string key_pressed = 3;
 }
