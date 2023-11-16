@@ -1,4 +1,5 @@
 mod protos;
+mod server;
 
 use std::net::{TcpListener, TcpStream};
 use std::thread;
@@ -6,6 +7,7 @@ use std::thread;
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::window::PrimaryWindow;
+use crossbeam_channel::Receiver;
 use protobuf::{CodedInputStream, Message};
 use rand::prelude::*;
 
@@ -15,15 +17,17 @@ use protos::generated::applesauce;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_event::<InputEvent>()
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
         .add_systems(Startup, connect_to_remote_server)
         .add_systems(Update, keyboard_input_system)
-        .add_systems(Update, mouse_click_system)
+        .add_systems(Update, maybe_fire_bullet)
         .add_systems(Update, bullet_moves_forward_system)
         .add_systems(Update, ensure_dummy)
         .add_systems(Update, bullet_hit_despawns_dummy)
         .add_systems(Update, write_inputs_to_network)
+        .add_systems(Update, broadcast_incoming_events)
         .run();
 }
 
@@ -63,10 +67,20 @@ struct BulletBundle {
 }
 
 #[derive(Resource)]
-struct NetworkConnection(TcpStream);
+struct NetworkConnection {
+    stream: TcpStream,
+    channel: Receiver<InputEvent>,
+}
 
 #[derive(Resource)]
 struct NetServer(TcpListener);
+
+#[derive(Event)]
+struct InputEvent {
+    aim_x: f32,
+    aim_y: f32,
+    fire_button_pressed: bool,
+}
 
 fn setup(
     mut commands: Commands,
@@ -102,24 +116,42 @@ fn start_local_server(mut commands: Commands) {
 
     commands.insert_resource(NetServer(listener.try_clone().unwrap()));
 
-    // Create a new handle that can belong to the thread
-    thread::spawn(move || {
-        for stream in listener.incoming() {
-            let mut stream = stream.unwrap();
-            let mut input_stream = CodedInputStream::new(&mut stream);
-            loop {
-                let input: applesauce::Input = input_stream.read_message().unwrap();
-                println!("Received input: {}", input.to_string());
-            }
-        }
-    });
+    thread::spawn(move || server::serve(listener));
 }
 
 fn connect_to_remote_server(mut commands: Commands) {
     let server = std::env::var("REMOTE_SERVER").unwrap_or("localhost:3191".to_string());
-    let connection = TcpStream::connect(server).unwrap();
-    println!("Connected to server");
-    commands.insert_resource(NetworkConnection(connection));
+    let mut connection = TcpStream::connect(server).unwrap();
+
+    let (tx, rx) = crossbeam_channel::bounded::<InputEvent>(10);
+
+    commands.insert_resource(NetworkConnection {
+        stream: connection.try_clone().unwrap(),
+        channel: rx,
+    });
+
+    thread::spawn(move || {
+        let mut input_stream = CodedInputStream::new(&mut connection);
+
+        loop {
+            let input: applesauce::Input = input_stream.read_message().unwrap();
+            tx.send(InputEvent {
+                aim_x: input.aim_x,
+                aim_y: input.aim_y,
+                fire_button_pressed: input.fire_button_pressed,
+            })
+            .unwrap();
+        }
+    });
+}
+
+fn broadcast_incoming_events(
+    connection: ResMut<NetworkConnection>,
+    mut events: EventWriter<InputEvent>,
+) {
+    for event in connection.channel.try_iter() {
+        events.send(event);
+    }
 }
 
 fn bullet_moves_forward_system(mut bullets: Query<&mut Transform, With<Bullet>>) {
@@ -147,44 +179,21 @@ fn keyboard_input_system(
     }
 }
 
-fn mouse_click_system(
-    commands: Commands,
-    mouse_button_input: Res<Input<MouseButton>>,
-    players: Query<&Transform, With<Player>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
-    meshes: ResMut<Assets<Mesh>>,
-    materials: ResMut<Assets<ColorMaterial>>,
-) {
-    mouse_click_system_fallible(
-        commands,
-        mouse_button_input,
-        players,
-        windows,
-        cameras,
-        meshes,
-        materials,
-    );
-}
-
-// This system prints messages when you press or release the left mouse button:
-fn mouse_click_system_fallible(
+fn maybe_fire_bullet(
     mut commands: Commands,
-    mouse_button_input: Res<Input<MouseButton>>,
-    players: Query<&Transform, With<Player>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-) -> Option<()> {
-    let (camera, camera_transform) = cameras.get_single().ok()?;
-    let cursor = windows.get_single().ok()?.cursor_position()?;
-    let cursor_position = camera.viewport_to_world(camera_transform, cursor)?.origin;
+    mut events: EventReader<InputEvent>,
+    players: Query<&Transform, With<Player>>,
+) {
+    let player = players.get_single().unwrap();
 
-    let player = players.get_single().ok()?;
+    for event in events.read() {
+        if !event.fire_button_pressed {
+            continue;
+        }
 
-    if mouse_button_input.just_pressed(MouseButton::Left) {
-        let ray = cursor_position - player.translation;
+        let ray = Vec3::new(event.aim_x, event.aim_y, 0.);
         let rotation = Quat::from_rotation_z(ray.y.atan2(ray.x));
         let mut transform = player.clone().with_rotation(rotation);
         transform.translation.z += 0.1;
@@ -201,7 +210,6 @@ fn mouse_click_system_fallible(
             },
         });
     }
-    return Some(());
 }
 
 fn ensure_dummy(
@@ -249,6 +257,7 @@ fn write_inputs_to_network(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     mouse_button_input: Res<Input<MouseButton>>,
+    players: Query<&Transform, With<Player>>,
     // keyboard_input: Res<Input<KeyCode>>,
 ) {
     if windows.get_single().unwrap().cursor_position().is_none() {
@@ -262,14 +271,19 @@ fn write_inputs_to_network(
         .unwrap()
         .origin;
 
-    let mouse_button_pressed = mouse_button_input.just_pressed(MouseButton::Left);
+    let player = players.get_single().unwrap();
+    let aim_vector = cursor_position - player.translation;
 
-    let mut input = applesauce::Input::new();
-    input.mouse_position_x = cursor_position.x;
-    input.mouse_position_y = cursor_position.y;
-    input.mouse_button_pressed = mouse_button_pressed;
+    let fire_button_pressed = mouse_button_input.just_pressed(MouseButton::Left);
+
+    let input = applesauce::Input {
+        aim_x: aim_vector.x,
+        aim_y: aim_vector.y,
+        fire_button_pressed,
+        ..Default::default()
+    };
 
     input
-        .write_length_delimited_to_writer(&mut connection.0)
+        .write_length_delimited_to_writer(&mut connection.stream)
         .unwrap();
 }
