@@ -21,7 +21,7 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
         .add_systems(Startup, connect_to_remote_server)
-        .add_systems(Update, keyboard_input_system)
+        .add_systems(Update, move_player)
         .add_systems(Update, maybe_fire_bullet)
         .add_systems(Update, bullet_moves_forward_system)
         .add_systems(Update, ensure_dummy)
@@ -77,6 +77,9 @@ struct NetServer(TcpListener);
 
 #[derive(Event)]
 struct InputEvent {
+    move_left: bool,
+    move_right: bool,
+
     aim_x: f32,
     aim_y: f32,
     fire_button_pressed: bool,
@@ -136,6 +139,9 @@ fn connect_to_remote_server(mut commands: Commands) {
         loop {
             let input: applesauce::Input = input_stream.read_message().unwrap();
             tx.send(InputEvent {
+                move_left: input.move_left,
+                move_right: input.move_right,
+
                 aim_x: input.aim_x,
                 aim_y: input.aim_y,
                 fire_button_pressed: input.fire_button_pressed,
@@ -164,18 +170,20 @@ fn bullet_moves_forward_system(mut bullets: Query<&mut Transform, With<Bullet>>)
 
 // keyboard
 /// This system prints 'A' key state
-fn keyboard_input_system(
-    keyboard_input: Res<Input<KeyCode>>,
+fn move_player(
     mut players: Query<&mut Transform, With<Player>>,
+    mut events: EventReader<InputEvent>,
 ) {
     let mut player = players.get_single_mut().unwrap();
 
-    if keyboard_input.pressed(KeyCode::A) {
-        player.translation.x -= 1.;
-    }
+    for event in events.read() {
+        if event.move_left {
+            player.translation.x -= 1.;
+        }
 
-    if keyboard_input.pressed(KeyCode::D) {
-        player.translation.x += 1.;
+        if event.move_right {
+            player.translation.x += 1.;
+        }
     }
 }
 
@@ -258,7 +266,7 @@ fn write_inputs_to_network(
     cameras: Query<(&Camera, &GlobalTransform)>,
     mouse_button_input: Res<Input<MouseButton>>,
     players: Query<&Transform, With<Player>>,
-    // keyboard_input: Res<Input<KeyCode>>,
+    keyboard_input: Res<Input<KeyCode>>,
 ) {
     if windows.get_single().unwrap().cursor_position().is_none() {
         return;
@@ -271,12 +279,17 @@ fn write_inputs_to_network(
         .unwrap()
         .origin;
 
+    let move_left = keyboard_input.pressed(KeyCode::A);
+    let move_right = keyboard_input.pressed(KeyCode::D);
+
     let player = players.get_single().unwrap();
     let aim_vector = cursor_position - player.translation;
 
     let fire_button_pressed = mouse_button_input.just_pressed(MouseButton::Left);
 
     let input = applesauce::Input {
+        move_left,
+        move_right,
         aim_x: aim_vector.x,
         aim_y: aim_vector.y,
         fire_button_pressed,

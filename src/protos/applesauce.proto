@@ -1,7 +1,10 @@
 syntax = "proto3";
 
 message Input {
-  float aim_x = 1;
-  float aim_y = 2;
-  bool fire_button_pressed = 3;
+  bool move_right = 1;
+  bool move_left = 2;
+
+  float aim_x = 3;
+  float aim_y = 4;
+  bool fire_button_pressed = 5;
 }
