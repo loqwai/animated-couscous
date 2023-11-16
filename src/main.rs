@@ -115,7 +115,8 @@ fn setup(
 }
 
 fn start_local_server(mut commands: Commands) {
-    let listener = TcpListener::bind("0.0.0.0:3191").unwrap();
+    let addr = std::env::var("SERVE_ON").unwrap_or("localhost:3191".to_string());
+    let listener = TcpListener::bind(addr).unwrap();
 
     commands.insert_resource(NetServer(listener.try_clone().unwrap()));
 
@@ -123,8 +124,8 @@ fn start_local_server(mut commands: Commands) {
 }
 
 fn connect_to_remote_server(mut commands: Commands) {
-    let server = std::env::var("REMOTE_SERVER").unwrap_or("localhost:3191".to_string());
-    let mut connection = TcpStream::connect(server).unwrap();
+    let addr = std::env::var("CONNECT_TO").unwrap_or("localhost:3191".to_string());
+    let mut connection = TcpStream::connect(addr).unwrap();
 
     let (tx, rx) = crossbeam_channel::bounded::<InputEvent>(10);
 
@@ -137,6 +138,10 @@ fn connect_to_remote_server(mut commands: Commands) {
         let mut input_stream = CodedInputStream::new(&mut connection);
 
         loop {
+            if input_stream.eof().unwrap() {
+                break;
+            }
+
             let input: applesauce::Input = input_stream.read_message().unwrap();
             tx.send(InputEvent {
                 move_left: input.move_left,
