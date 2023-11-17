@@ -293,6 +293,7 @@ fn activate_shield(
                             mesh: meshes.add(shape::Circle::new(60.).into()).into(),
                             material: materials
                                 .add(ColorMaterial::from(Color::rgba(1., 1., 1., 0.5))),
+                            transform: Transform::from_translation(Vec3::new(0., 0., 0.1)),
                             ..default()
                         },
                     })
