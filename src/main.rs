@@ -288,7 +288,7 @@ fn activate_shield(
                 let shield = commands
                     .spawn(ShieldBundle {
                         shield: Shield {
-                            ttl: Timer::new(Duration::from_secs(5), TimerMode::Once),
+                            ttl: Timer::new(Duration::from_millis(100), TimerMode::Once),
                         },
                         mesh_bundle: MaterialMesh2dBundle {
                             mesh: meshes.add(shape::Circle::new(60.).into()).into(),
