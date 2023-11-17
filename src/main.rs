@@ -6,17 +6,34 @@ use std::thread;
 
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
-use bevy::window::PrimaryWindow;
-use crossbeam_channel::Receiver;
+use bevy::window::WindowPlugin;
+use bevy::window::{PrimaryWindow, WindowResolution};
+use crossbeam_channel::{Receiver, Sender};
 use protobuf::{CodedInputStream, Message};
 use rand::prelude::*;
 
 use protos::generated::applesauce;
+use uuid::Uuid;
 
 //
 fn main() {
+    let window_offset: i32 = std::env::var("WINDOW_OFFSET")
+        .unwrap_or("0".to_string())
+        .parse()
+        .unwrap();
+
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                resolution: WindowResolution::new(1000., 80.),
+                position: WindowPosition::new(IVec2 {
+                    x: 0,
+                    y: window_offset,
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }))
         .add_event::<InputEvent>()
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
@@ -73,7 +90,11 @@ struct NetworkConnection {
 }
 
 #[derive(Resource)]
-struct NetServer(TcpListener);
+struct NetServer {
+    #[allow(dead_code)]
+    listener: TcpListener,
+    tx: Sender<applesauce::Input>,
+}
 
 #[derive(Event)]
 struct InputEvent {
@@ -118,9 +139,9 @@ fn start_local_server(mut commands: Commands) {
     let addr = std::env::var("SERVE_ON").unwrap_or("localhost:3191".to_string());
     let listener = TcpListener::bind(addr).unwrap();
 
-    commands.insert_resource(NetServer(listener.try_clone().unwrap()));
+    let tx = server::serve(listener.try_clone().unwrap());
 
-    thread::spawn(move || server::serve(listener));
+    commands.insert_resource(NetServer { listener, tx });
 }
 
 fn connect_to_remote_server(mut commands: Commands) {
@@ -272,6 +293,7 @@ fn write_inputs_to_network(
     mouse_button_input: Res<Input<MouseButton>>,
     players: Query<&Transform, With<Player>>,
     keyboard_input: Res<Input<KeyCode>>,
+    server: Res<NetServer>,
 ) {
     if windows.get_single().unwrap().cursor_position().is_none() {
         return;
@@ -293,6 +315,7 @@ fn write_inputs_to_network(
     let fire_button_pressed = mouse_button_input.just_pressed(MouseButton::Left);
 
     let input = applesauce::Input {
+        id: Uuid::new_v4().into(),
         move_left,
         move_right,
         aim_x: aim_vector.x,
@@ -301,7 +324,11 @@ fn write_inputs_to_network(
         ..Default::default()
     };
 
+    // write it to our network connection
     input
         .write_length_delimited_to_writer(&mut connection.stream)
         .unwrap();
+
+    // write it again to our server so it can broadcast it to other clients
+    server.tx.send(input).unwrap();
 }

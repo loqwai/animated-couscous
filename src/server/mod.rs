@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     net::{TcpListener, TcpStream},
     thread,
 };
@@ -14,9 +15,10 @@ enum Event {
     Input(applesauce::Input),
 }
 
-pub(crate) fn serve(listener: TcpListener) {
+pub(crate) fn serve(listener: TcpListener) -> Sender<applesauce::Input> {
     let (tx, rx) = crossbeam_channel::bounded::<Event>(10);
 
+    let tx2 = tx.clone();
     let rx2 = rx.clone();
 
     thread::spawn(move || {
@@ -33,6 +35,7 @@ pub(crate) fn serve(listener: TcpListener) {
 
     thread::spawn(move || {
         let mut streams: Vec<TcpStream> = vec![];
+        let mut proxied_events: HashSet<String> = HashSet::new();
 
         for event in rx2.iter() {
             match event {
@@ -43,6 +46,12 @@ pub(crate) fn serve(listener: TcpListener) {
                     streams.push(stream);
                 }
                 Event::Input(input) => {
+                    if proxied_events.contains(&input.id) {
+                        continue;
+                    }
+
+                    proxied_events.insert(input.id.clone());
+
                     for mut stream in streams.iter() {
                         input.write_length_delimited_to_writer(&mut stream).unwrap();
                     }
@@ -50,6 +59,16 @@ pub(crate) fn serve(listener: TcpListener) {
             }
         }
     });
+
+    let (tx_input, rx_input) = crossbeam_channel::bounded::<applesauce::Input>(10);
+
+    thread::spawn(move || {
+        for input in rx_input.iter() {
+            tx2.send(Event::Input(input)).unwrap();
+        }
+    });
+
+    return tx_input.clone();
 }
 
 fn handle_connection(stream: TcpStream, events_tx: Sender<Event>) {
