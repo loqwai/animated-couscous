@@ -47,6 +47,7 @@ fn main() {
         .add_systems(Update, incoming_network_messages_to_events)
         .add_systems(Update, broadcast_state)
         .add_systems(Update, activate_shield)
+        .add_systems(Update, shield_blocks_bullets)
         .run();
 }
 
@@ -78,7 +79,15 @@ struct MainPlayerBundle {
 struct Bullet;
 
 #[derive(Component)]
-struct Shield;
+struct Shield {
+    ttl: Timer,
+}
+
+#[derive(Bundle)]
+struct ShieldBundle {
+    shield: Shield,
+    mesh_bundle: MaterialMesh2dBundle<ColorMaterial>,
+}
 
 #[derive(Bundle)]
 struct BulletBundle {
@@ -264,16 +273,31 @@ fn fire_bullets(
 fn activate_shield(
     mut commands: Commands,
     mut events: EventReader<InputEvent>,
-    players: Query<(&Player, Entity)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    players: Query<(Entity, &Player, &Transform)>,
 ) {
     for event in events.read() {
         if !event.shield_button_pressed {
             continue;
         }
 
-        match players.iter().find(|(p, _)| p.id == event.player_id) {
-            Some((_, entity)) => {
-                commands.entity(entity).insert(Shield);
+        match players.iter().find(|(_, p, _)| p.id == event.player_id) {
+            Some((entity, _, transform)) => {
+                let shield = commands
+                    .spawn(ShieldBundle {
+                        shield: Shield {
+                            ttl: Timer::new(Duration::from_secs(5), TimerMode::Once),
+                        },
+                        mesh_bundle: MaterialMesh2dBundle {
+                            mesh: meshes.add(shape::Circle::new(60.).into()).into(),
+                            material: materials.add(ColorMaterial::from(Color::WHITE)),
+                            transform: transform.clone(),
+                            ..default()
+                        },
+                    })
+                    .id();
+                commands.entity(entity).add_child(shield);
             }
             None => {
                 println!("Shield activated for nonextant player: {}", event.player_id);
@@ -362,8 +386,22 @@ fn bullet_hit_despawns_player(
 ) {
     for (bullet, bloc) in bullets.iter() {
         for (entity, player) in players.iter_mut() {
-            if bloc.translation.distance(player.translation) < 70. {
+            if bloc.translation.distance(player.translation) < 50. {
                 commands.entity(entity).despawn();
+                commands.entity(bullet).despawn();
+            }
+        }
+    }
+}
+
+fn shield_blocks_bullets(
+    mut commands: Commands,
+    bullets: Query<(Entity, &Transform), With<Bullet>>,
+    shields: Query<&Transform, With<Shield>>,
+) {
+    for (bullet, bloc) in bullets.iter() {
+        for shield in shields.iter() {
+            if bloc.translation.distance(shield.translation) < 60. {
                 commands.entity(bullet).despawn();
             }
         }
