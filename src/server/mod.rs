@@ -1,10 +1,11 @@
 use std::{
-    collections::HashSet,
     net::{TcpListener, TcpStream},
+    num::NonZeroUsize,
     thread,
 };
 
 use crossbeam_channel::{Receiver, Sender};
+use lru::LruCache;
 use protobuf::{CodedInputStream, Message};
 
 use crate::protos::generated::applesauce;
@@ -48,7 +49,7 @@ pub(crate) fn serve(
 
     thread::spawn(move || {
         let mut streams: Vec<TcpStream> = vec![];
-        let mut proxied_events: HashSet<String> = HashSet::new();
+        let mut proxied_events = LruCache::new(NonZeroUsize::new(100).unwrap());
 
         for event in rx2.iter() {
             match event {
@@ -62,7 +63,7 @@ pub(crate) fn serve(
                     if proxied_events.contains(&wrapper.id) {
                         continue;
                     }
-                    proxied_events.insert(wrapper.id.clone());
+                    proxied_events.put(wrapper.id.clone(), true);
 
                     tx_output.send(wrapper.clone()).unwrap();
                     for mut stream in streams.iter() {
