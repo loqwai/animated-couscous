@@ -24,7 +24,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                resolution: WindowResolution::new(1000., 80.),
+                resolution: WindowResolution::new(1000., 300.),
                 position: WindowPosition::new(IVec2 {
                     x: 0,
                     y: window_offset,
@@ -39,10 +39,10 @@ fn main() {
         .add_systems(Startup, start_local_server)
         .add_systems(Update, ensure_main_player)
         .add_systems(Update, move_player)
-        .add_systems(Update, maybe_fire_bullet)
+        .add_systems(Update, fire_bullets)
         .add_systems(Update, bullet_moves_forward_system)
         .add_systems(Update, spawn_player)
-        .add_systems(Update, bullet_hit_despawns_dummy)
+        .add_systems(Update, bullet_hit_despawns_player)
         .add_systems(Update, write_inputs_to_server)
         .add_systems(Update, incoming_network_messages_to_events)
         .add_systems(Update, broadcast_state)
@@ -60,17 +60,6 @@ struct Player {
 
 #[derive(Component)]
 struct MainPlayer;
-
-// dummy component
-#[derive(Component)]
-struct Dummy;
-
-#[derive(Bundle)]
-struct DummyBundle {
-    dummy: Dummy,
-    name: Name,
-    mesh_bundle: MaterialMesh2dBundle<ColorMaterial>,
-}
 
 #[derive(Bundle)]
 struct PlayerBundle {
@@ -217,7 +206,7 @@ fn move_player(mut players: Query<(&Player, &mut Transform)>, mut events: EventR
     }
 }
 
-fn maybe_fire_bullet(
+fn fire_bullets(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -234,7 +223,15 @@ fn maybe_fire_bullet(
                 let ray = Vec3::new(event.aim_x, event.aim_y, 0.);
                 let rotation = Quat::from_rotation_z(ray.y.atan2(ray.x));
                 let mut transform = transform.clone().with_rotation(rotation);
-                transform.translation.z += 0.1;
+
+                // offset the bullet so they don't shoot themselves
+                let player_radius = 50.;
+                let bullet_half_length = 20.;
+                let fudge_factor = 1.;
+                transform.translation += ray
+                    .normalize()
+                    .clamp_length_min(player_radius + bullet_half_length + fudge_factor);
+                transform.translation.z = 0.1;
 
                 commands.spawn(BulletBundle {
                     bullet: Bullet,
@@ -330,14 +327,14 @@ fn spawn_player(
     }
 }
 
-fn bullet_hit_despawns_dummy(
+fn bullet_hit_despawns_player(
     mut commands: Commands,
     bullets: Query<(Entity, &Transform), With<Bullet>>,
-    mut dummies: Query<(Entity, &Transform), With<Dummy>>,
+    mut players: Query<(Entity, &Transform), With<Player>>,
 ) {
     for (bullet, bloc) in bullets.iter() {
-        for (entity, dummy) in dummies.iter_mut() {
-            if bloc.translation.distance(dummy.translation) < 70. {
+        for (entity, player) in players.iter_mut() {
+            if bloc.translation.distance(player.translation) < 70. {
                 commands.entity(entity).despawn();
                 commands.entity(bullet).despawn();
             }
