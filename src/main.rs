@@ -217,7 +217,7 @@ fn fire_bullets(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut events: EventReader<InputEvent>,
-    players: Query<(&Player, &Transform), Without<Shield>>,
+    players: Query<(&Player, &Transform)>,
 ) {
     for event in events.read() {
         if !event.fire_button_pressed {
@@ -358,7 +358,7 @@ fn spawn_player(
 fn bullet_hit_despawns_player(
     mut commands: Commands,
     bullets: Query<(Entity, &Transform), With<Bullet>>,
-    mut players: Query<(Entity, &Transform), With<Player>>,
+    mut players: Query<(Entity, &Transform), (With<Player>, Without<Shield>)>,
 ) {
     for (bullet, bloc) in bullets.iter() {
         for (entity, player) in players.iter_mut() {
