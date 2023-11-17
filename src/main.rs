@@ -1,15 +1,11 @@
 mod protos;
 mod server;
 
-use std::net::{TcpListener, TcpStream};
-use std::thread;
-
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::window::WindowPlugin;
 use bevy::window::{PrimaryWindow, WindowResolution};
 use crossbeam_channel::{Receiver, Sender};
-use protobuf::{CodedInputStream, Message};
 use rand::prelude::*;
 
 use protos::generated::applesauce;
@@ -37,13 +33,12 @@ fn main() {
         .add_event::<InputEvent>()
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
-        .add_systems(Startup, connect_to_remote_server)
         .add_systems(Update, move_player)
         .add_systems(Update, maybe_fire_bullet)
         .add_systems(Update, bullet_moves_forward_system)
         .add_systems(Update, ensure_dummy)
         .add_systems(Update, bullet_hit_despawns_dummy)
-        .add_systems(Update, write_inputs_to_network)
+        .add_systems(Update, write_inputs_to_server)
         .add_systems(Update, broadcast_incoming_events)
         .run();
 }
@@ -84,16 +79,9 @@ struct BulletBundle {
 }
 
 #[derive(Resource)]
-struct NetworkConnection {
-    stream: TcpStream,
-    channel: Receiver<InputEvent>,
-}
-
-#[derive(Resource)]
 struct NetServer {
-    #[allow(dead_code)]
-    listener: TcpListener,
     tx: Sender<applesauce::Input>,
+    rx: Receiver<applesauce::Input>,
 }
 
 #[derive(Event)]
@@ -136,53 +124,24 @@ fn setup(
 }
 
 fn start_local_server(mut commands: Commands) {
-    let addr = std::env::var("SERVE_ON").unwrap_or("localhost:3191".to_string());
-    let listener = TcpListener::bind(addr).unwrap();
+    let listen_addr = std::env::var("SERVE_ON").unwrap_or("localhost:3191".to_string());
+    let connect_addr = std::env::var("CONNECT_TO").unwrap_or("localhost:3191".to_string());
 
-    let tx = server::serve(listener.try_clone().unwrap());
+    let (tx, rx) = server::serve(&listen_addr, &connect_addr);
 
-    commands.insert_resource(NetServer { listener, tx });
+    commands.insert_resource(NetServer { tx, rx });
 }
 
-fn connect_to_remote_server(mut commands: Commands) {
-    let addr = std::env::var("CONNECT_TO").unwrap_or("localhost:3191".to_string());
-    let mut connection = TcpStream::connect(addr).unwrap();
+fn broadcast_incoming_events(connection: ResMut<NetServer>, mut events: EventWriter<InputEvent>) {
+    for input in connection.rx.try_iter() {
+        events.send(InputEvent {
+            move_left: input.move_left,
+            move_right: input.move_right,
 
-    let (tx, rx) = crossbeam_channel::bounded::<InputEvent>(10);
-
-    commands.insert_resource(NetworkConnection {
-        stream: connection.try_clone().unwrap(),
-        channel: rx,
-    });
-
-    thread::spawn(move || {
-        let mut input_stream = CodedInputStream::new(&mut connection);
-
-        loop {
-            if input_stream.eof().unwrap() {
-                break;
-            }
-
-            let input: applesauce::Input = input_stream.read_message().unwrap();
-            tx.send(InputEvent {
-                move_left: input.move_left,
-                move_right: input.move_right,
-
-                aim_x: input.aim_x,
-                aim_y: input.aim_y,
-                fire_button_pressed: input.fire_button_pressed,
-            })
-            .unwrap();
-        }
-    });
-}
-
-fn broadcast_incoming_events(
-    connection: ResMut<NetworkConnection>,
-    mut events: EventWriter<InputEvent>,
-) {
-    for event in connection.channel.try_iter() {
-        events.send(event);
+            aim_x: input.aim_x,
+            aim_y: input.aim_y,
+            fire_button_pressed: input.fire_button_pressed,
+        });
     }
 }
 
@@ -286,8 +245,7 @@ fn bullet_hit_despawns_dummy(
     }
 }
 
-fn write_inputs_to_network(
-    mut connection: ResMut<NetworkConnection>,
+fn write_inputs_to_server(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     mouse_button_input: Res<Input<MouseButton>>,
@@ -324,11 +282,5 @@ fn write_inputs_to_network(
         ..Default::default()
     };
 
-    // write it to our network connection
-    input
-        .write_length_delimited_to_writer(&mut connection.stream)
-        .unwrap();
-
-    // write it again to our server so it can broadcast it to other clients
     server.tx.send(input).unwrap();
 }
