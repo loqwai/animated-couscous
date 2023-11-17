@@ -29,6 +29,7 @@ message Input {
   float aim_x = 4;
   float aim_y = 5;
   bool fire_button_pressed = 6;
+  bool shield_button_pressed = 7;
 }
 
 message State {

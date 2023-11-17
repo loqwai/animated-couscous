@@ -46,6 +46,7 @@ fn main() {
         .add_systems(Update, write_inputs_to_server)
         .add_systems(Update, incoming_network_messages_to_events)
         .add_systems(Update, broadcast_state)
+        .add_systems(Update, activate_shield)
         .run();
 }
 
@@ -76,6 +77,9 @@ struct MainPlayerBundle {
 #[derive(Component)]
 struct Bullet;
 
+#[derive(Component)]
+struct Shield;
+
 #[derive(Bundle)]
 struct BulletBundle {
     bullet: Bullet,
@@ -99,6 +103,7 @@ struct InputEvent {
     aim_x: f32,
     aim_y: f32,
     fire_button_pressed: bool,
+    shield_button_pressed: bool,
 }
 
 #[derive(Event)]
@@ -153,6 +158,7 @@ fn incoming_network_messages_to_events(
                     aim_x: input.aim_x,
                     aim_y: input.aim_y,
                     fire_button_pressed: input.fire_button_pressed,
+                    shield_button_pressed: input.shield_button_pressed,
                 });
             }
             Inner::PlayerSpawn(player_spawn) => {
@@ -211,7 +217,7 @@ fn fire_bullets(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut events: EventReader<InputEvent>,
-    players: Query<(&Player, &Transform)>,
+    players: Query<(&Player, &Transform), Without<Shield>>,
 ) {
     for event in events.read() {
         if !event.fire_button_pressed {
@@ -252,6 +258,27 @@ fn fire_bullets(
                 )
             }
         };
+    }
+}
+
+fn activate_shield(
+    mut commands: Commands,
+    mut events: EventReader<InputEvent>,
+    players: Query<(&Player, Entity)>,
+) {
+    for event in events.read() {
+        if !event.shield_button_pressed {
+            continue;
+        }
+
+        match players.iter().find(|(p, _)| p.id == event.player_id) {
+            Some((_, entity)) => {
+                commands.entity(entity).insert(Shield);
+            }
+            None => {
+                println!("Shield activated for nonextant player: {}", event.player_id);
+            }
+        }
     }
 }
 
@@ -360,6 +387,7 @@ fn write_inputs_to_server(
         server,
     );
 }
+
 fn write_inputs_to_server_fallible(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
@@ -384,6 +412,7 @@ fn write_inputs_to_server_fallible(
     let aim_vector = cursor_position - player_transform.translation;
 
     let fire_button_pressed = mouse_button_input.just_pressed(MouseButton::Left);
+    let shield_button_pressed = mouse_button_input.just_pressed(MouseButton::Right);
 
     let wrapper = applesauce::Wrapper {
         id: Uuid::new_v4().into(),
@@ -394,6 +423,7 @@ fn write_inputs_to_server_fallible(
             aim_x: aim_vector.x,
             aim_y: aim_vector.y,
             fire_button_pressed,
+            shield_button_pressed,
             ..Default::default()
         })),
         ..Default::default()
