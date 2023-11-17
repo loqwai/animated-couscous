@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
-use bevy::transform::commands;
 use bevy::window::WindowPlugin;
 use bevy::window::{PrimaryWindow, WindowResolution};
 use crossbeam_channel::{Receiver, Sender};
@@ -199,7 +198,7 @@ fn incoming_network_messages_to_events(
 fn bullet_moves_forward_system(mut bullets: Query<&mut Transform, With<Bullet>>) {
     for mut bullet in bullets.iter_mut() {
         // move bullet forward, taking it's rotation into account
-        let rotation = bullet.rotation * Vec3::X * 5.;
+        let rotation = bullet.rotation * Vec3::X * 10.;
         bullet.translation += rotation;
     }
 }
@@ -225,11 +224,11 @@ fn move_player(mut players: Query<(&Player, &mut Transform)>, mut events: EventR
             None => continue,
             Some((_, mut transform)) => {
                 if event.move_left {
-                    transform.translation.x -= 1.;
+                    transform.translation.x -= 2.;
                 }
 
                 if event.move_right {
-                    transform.translation.x += 1.;
+                    transform.translation.x += 2.;
                 }
             }
         }
