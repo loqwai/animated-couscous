@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
+use bevy::transform::commands;
 use bevy::window::WindowPlugin;
 use bevy::window::{PrimaryWindow, WindowResolution};
 use crossbeam_channel::{Receiver, Sender};
@@ -49,6 +50,7 @@ fn main() {
         .add_systems(Update, activate_shield)
         .add_systems(Update, shield_blocks_bullets)
         .add_systems(Update, despawn_shield_on_ttl)
+        .add_systems(PostUpdate, despawn_things_that_need_despawning)
         .run();
 }
 
@@ -83,6 +85,9 @@ struct Bullet;
 struct Shield {
     ttl: Timer,
 }
+
+#[derive(Component)]
+struct Despawn;
 
 #[derive(Bundle)]
 struct ShieldBundle {
@@ -196,6 +201,15 @@ fn bullet_moves_forward_system(mut bullets: Query<&mut Transform, With<Bullet>>)
         // move bullet forward, taking it's rotation into account
         let rotation = bullet.rotation * Vec3::X * 5.;
         bullet.translation += rotation;
+    }
+}
+
+fn despawn_things_that_need_despawning(
+    mut commands: Commands,
+    entities: Query<Entity, With<Despawn>>,
+) {
+    for entity in entities.iter() {
+        commands.entity(entity).despawn_recursive();
     }
 }
 
@@ -389,8 +403,8 @@ fn bullet_hit_despawns_player(
     for (bullet, bloc) in bullets.iter() {
         for (entity, player) in players.iter_mut() {
             if bloc.translation.distance(player.translation) < 50. {
-                commands.entity(entity).despawn();
-                commands.entity(bullet).despawn();
+                commands.entity(entity).insert(Despawn);
+                commands.entity(bullet).insert(Despawn);
             }
         }
     }
@@ -404,7 +418,7 @@ fn shield_blocks_bullets(
     for (bullet, bloc) in bullets.iter() {
         for shield in shields.iter() {
             if bloc.translation.distance(shield.translation()) < 60. {
-                commands.entity(bullet).despawn();
+                commands.entity(bullet).insert(Despawn);
             }
         }
     }
@@ -418,7 +432,7 @@ fn despawn_shield_on_ttl(
     for (entity, mut shield) in shields.iter_mut() {
         shield.ttl.tick(time.delta());
         if shield.ttl.finished() {
-            commands.entity(entity).despawn();
+            commands.entity(entity).insert(Despawn);
         }
     }
 }
