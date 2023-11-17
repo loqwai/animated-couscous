@@ -291,7 +291,8 @@ fn activate_shield(
                         },
                         mesh_bundle: MaterialMesh2dBundle {
                             mesh: meshes.add(shape::Circle::new(60.).into()).into(),
-                            material: materials.add(ColorMaterial::from(Color::WHITE)),
+                            material: materials
+                                .add(ColorMaterial::from(Color::rgba(1., 1., 1., 0.5))),
                             transform: transform.clone(),
                             ..default()
                         },
