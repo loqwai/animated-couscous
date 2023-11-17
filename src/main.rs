@@ -37,10 +37,10 @@ fn main() {
         .add_event::<PlayerSpawnEvent>()
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
+        .add_systems(Update, ensure_main_player)
         .add_systems(Update, move_player)
         .add_systems(Update, maybe_fire_bullet)
         .add_systems(Update, bullet_moves_forward_system)
-        .add_systems(Update, ensure_dummy)
         .add_systems(Update, spawn_player)
         .add_systems(Update, bullet_hit_despawns_dummy)
         .add_systems(Update, write_inputs_to_server)
@@ -55,6 +55,7 @@ struct Name(String);
 #[derive(Component)]
 struct Player {
     id: String,
+    color: Vec3,
 }
 
 #[derive(Component)]
@@ -115,6 +116,7 @@ struct InputEvent {
 struct PlayerSpawnEvent {
     player_id: String,
     position: Vec3,
+    color: Vec3,
 }
 
 fn setup(
@@ -123,22 +125,6 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     commands.spawn(Camera2dBundle::default());
-
-    // Player
-    commands.spawn(MainPlayerBundle {
-        main_player: MainPlayer,
-        player_bundle: PlayerBundle {
-            player: Player {
-                id: uuid::Uuid::new_v4().to_string(),
-            },
-            mesh_bundle: MaterialMesh2dBundle {
-                mesh: meshes.add(shape::Circle::new(50.).into()).into(),
-                material: materials.add(ColorMaterial::from(Color::BLUE)),
-                transform: Transform::from_translation(Vec3::new(0., 50., 0.)),
-                ..default()
-            },
-        },
-    });
 
     // Ground
     commands.spawn(MaterialMesh2dBundle {
@@ -184,6 +170,7 @@ fn incoming_network_messages_to_events(
                 player_spawn_events.send(PlayerSpawnEvent {
                     player_id: player_spawn.id,
                     position: Vec3::new(player_spawn.x, player_spawn.y, 0.),
+                    color: Vec3::new(player_spawn.r, player_spawn.g, player_spawn.b),
                 });
             }
             Inner::State(state) => {
@@ -191,6 +178,7 @@ fn incoming_network_messages_to_events(
                     player_spawn_events.send(PlayerSpawnEvent {
                         player_id: player_spawn.id.clone(),
                         position: Vec3::new(player_spawn.x, player_spawn.y, 0.),
+                        color: Vec3::new(player_spawn.r, player_spawn.g, player_spawn.b),
                     });
                 }
             }
@@ -270,26 +258,36 @@ fn maybe_fire_bullet(
     }
 }
 
-fn ensure_dummy(
+fn ensure_main_player(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    dummies: Query<&Name, With<Dummy>>,
+    main_players: Query<Entity, With<MainPlayer>>,
 ) {
-    if dummies.iter().count() == 0 {
+    if main_players.iter().count() == 0 {
+        let id = uuid::Uuid::new_v4().to_string();
         let mut rng = rand::thread_rng();
         let mut random_position: f32 = rng.gen();
         random_position *= 1000.;
         random_position -= 500.;
 
-        commands.spawn(DummyBundle {
-            dummy: Dummy,
-            name: Name("Dummy".to_string()),
-            mesh_bundle: MaterialMesh2dBundle {
-                mesh: meshes.add(shape::Circle::new(50.).into()).into(),
-                material: materials.add(ColorMaterial::from(Color::RED)),
-                transform: Transform::from_translation(Vec3::new(random_position, 50., -0.1)),
-                ..default()
+        let r = rng.gen();
+        let g = rng.gen();
+        let b = rng.gen();
+
+        commands.spawn(MainPlayerBundle {
+            main_player: MainPlayer,
+            player_bundle: PlayerBundle {
+                player: Player {
+                    id,
+                    color: Vec3::new(r, g, b),
+                },
+                mesh_bundle: MaterialMesh2dBundle {
+                    mesh: meshes.add(shape::Circle::new(50.).into()).into(),
+                    material: materials.add(ColorMaterial::from(Color::rgb(r, g, b))),
+                    transform: Transform::from_translation(Vec3::new(random_position, 50., -0.1)),
+                    ..default()
+                },
             },
         });
     }
@@ -314,10 +312,15 @@ fn spawn_player(
                 commands.spawn(PlayerBundle {
                     player: Player {
                         id: event.player_id.clone(),
+                        color: event.color,
                     },
                     mesh_bundle: MaterialMesh2dBundle {
                         mesh: meshes.add(shape::Circle::new(50.).into()).into(),
-                        material: materials.add(ColorMaterial::from(Color::BLUE)),
+                        material: materials.add(ColorMaterial::from(Color::rgb(
+                            event.color.x,
+                            event.color.y,
+                            event.color.z,
+                        ))),
                         transform: Transform::from_translation(event.position),
                         ..default()
                     },
@@ -403,6 +406,10 @@ fn broadcast_state(
             id: player.id.clone(),
             x: transform.translation.x,
             y: transform.translation.y,
+            r: player.color.x,
+            g: player.color.y,
+            b: player.color.z,
+
             ..Default::default()
         })
         .collect::<Vec<applesauce::Player>>();
