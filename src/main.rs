@@ -158,7 +158,7 @@ fn incoming_network_messages_to_events(
             Inner::PlayerSpawn(player_spawn) => {
                 player_spawn_events.send(PlayerSpawnEvent {
                     player_id: player_spawn.id,
-                    position: Vec3::new(player_spawn.x, player_spawn.y, 0.),
+                    position: Vec3::new(player_spawn.x, player_spawn.y, player_spawn.z),
                     color: Vec3::new(player_spawn.r, player_spawn.g, player_spawn.b),
                 });
             }
@@ -166,7 +166,7 @@ fn incoming_network_messages_to_events(
                 for player_spawn in state.players.iter() {
                     player_spawn_events.send(PlayerSpawnEvent {
                         player_id: player_spawn.id.clone(),
-                        position: Vec3::new(player_spawn.x, player_spawn.y, 0.),
+                        position: Vec3::new(player_spawn.x, player_spawn.y, player_spawn.z),
                         color: Vec3::new(player_spawn.r, player_spawn.g, player_spawn.b),
                     });
                 }
@@ -264,9 +264,10 @@ fn ensure_main_player(
     if main_players.iter().count() == 0 {
         let id = uuid::Uuid::new_v4().to_string();
         let mut rng = rand::thread_rng();
-        let mut random_position: f32 = rng.gen();
-        random_position *= 1000.;
-        random_position -= 500.;
+        let mut x: f32 = rng.gen();
+        x *= 1000.;
+        x -= 500.;
+        let z: f32 = rng.gen();
 
         let r = rng.gen();
         let g = rng.gen();
@@ -282,7 +283,7 @@ fn ensure_main_player(
                 mesh_bundle: MaterialMesh2dBundle {
                     mesh: meshes.add(shape::Circle::new(50.).into()).into(),
                     material: materials.add(ColorMaterial::from(Color::rgb(r, g, b))),
-                    transform: Transform::from_translation(Vec3::new(random_position, 50., -0.1)),
+                    transform: Transform::from_translation(Vec3::new(x, 50., z)),
                     ..default()
                 },
             },
@@ -350,9 +351,24 @@ fn write_inputs_to_server(
     keyboard_input: Res<Input<KeyCode>>,
     server: Res<NetServer>,
 ) {
-    if windows.get_single().unwrap().cursor_position().is_none() {
-        return;
-    }
+    write_inputs_to_server_fallible(
+        windows,
+        cameras,
+        mouse_button_input,
+        main_players,
+        keyboard_input,
+        server,
+    );
+}
+fn write_inputs_to_server_fallible(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    mouse_button_input: Res<Input<MouseButton>>,
+    main_players: Query<(&Transform, &Player), With<MainPlayer>>,
+    keyboard_input: Res<Input<KeyCode>>,
+    server: Res<NetServer>,
+) -> Option<()> {
+    windows.get_single().unwrap().cursor_position()?;
 
     let (camera, camera_transform) = cameras.get_single().unwrap();
     let cursor = windows.get_single().unwrap().cursor_position().unwrap();
@@ -364,7 +380,7 @@ fn write_inputs_to_server(
     let move_left = keyboard_input.pressed(KeyCode::A);
     let move_right = keyboard_input.pressed(KeyCode::D);
 
-    let (player_transform, player) = main_players.get_single().unwrap();
+    let (player_transform, player) = main_players.get_single().ok()?;
     let aim_vector = cursor_position - player_transform.translation;
 
     let fire_button_pressed = mouse_button_input.just_pressed(MouseButton::Left);
@@ -384,6 +400,7 @@ fn write_inputs_to_server(
     };
 
     server.tx.send(wrapper).unwrap();
+    Some(())
 }
 
 fn broadcast_state(
@@ -403,6 +420,7 @@ fn broadcast_state(
             id: player.id.clone(),
             x: transform.translation.x,
             y: transform.translation.y,
+            z: transform.translation.z,
             r: player.color.x,
             g: player.color.y,
             b: player.color.z,
