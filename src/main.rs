@@ -1,7 +1,6 @@
 mod protos;
 mod server;
 
-use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use bevy::prelude::*;
@@ -9,7 +8,6 @@ use bevy::sprite::MaterialMesh2dBundle;
 use bevy::window::WindowPlugin;
 use bevy::window::{PrimaryWindow, WindowResolution};
 use crossbeam_channel::{Receiver, Sender};
-use lru::LruCache;
 use protos::generated::applesauce::wrapper::Inner;
 use rand::prelude::*;
 
@@ -91,9 +89,6 @@ struct NetServer {
     poll_timer: Timer,
 }
 
-#[derive(Resource)]
-struct RecentlyDeceasedPlayers(LruCache<String, bool>);
-
 #[derive(Event)]
 struct InputEvent {
     player_id: String,
@@ -118,10 +113,6 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    commands.insert_resource(RecentlyDeceasedPlayers(LruCache::new(
-        NonZeroUsize::new(100).unwrap(),
-    )));
-
     commands.spawn(Camera2dBundle::default());
 
     // Ground
@@ -306,7 +297,6 @@ fn spawn_player(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut existing_players: Query<(&Player, &mut Transform)>,
-    recently_deceased_players: Res<RecentlyDeceasedPlayers>,
 ) {
     for event in events.read() {
         match existing_players
@@ -317,10 +307,6 @@ fn spawn_player(
                 transform.translation = event.position;
             }
             None => {
-                if recently_deceased_players.0.contains(&event.player_id) {
-                    continue;
-                }
-
                 commands.spawn(PlayerBundle {
                     player: Player {
                         id: event.player_id.clone(),
@@ -345,15 +331,13 @@ fn spawn_player(
 fn bullet_hit_despawns_player(
     mut commands: Commands,
     bullets: Query<(Entity, &Transform), With<Bullet>>,
-    mut players: Query<(Entity, &Transform, &Player)>,
-    mut recently_deceased_players: ResMut<RecentlyDeceasedPlayers>,
+    mut players: Query<(Entity, &Transform), With<Player>>,
 ) {
     for (bullet, bloc) in bullets.iter() {
-        for (entity, transform, player) in players.iter_mut() {
-            if bloc.translation.distance(transform.translation) < 70. {
+        for (entity, player) in players.iter_mut() {
+            if bloc.translation.distance(player.translation) < 70. {
                 commands.entity(entity).despawn();
                 commands.entity(bullet).despawn();
-                recently_deceased_players.0.put(player.id.clone(), true);
             }
         }
     }
