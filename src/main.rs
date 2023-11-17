@@ -275,15 +275,15 @@ fn activate_shield(
     mut events: EventReader<InputEvent>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    players: Query<(Entity, &Player, &Transform)>,
+    players: Query<(Entity, &Player)>,
 ) {
     for event in events.read() {
         if !event.shield_button_pressed {
             continue;
         }
 
-        match players.iter().find(|(_, p, _)| p.id == event.player_id) {
-            Some((entity, _, transform)) => {
+        match players.iter().find(|(_, p)| p.id == event.player_id) {
+            Some((entity, _)) => {
                 let shield = commands
                     .spawn(ShieldBundle {
                         shield: Shield {
@@ -293,7 +293,6 @@ fn activate_shield(
                             mesh: meshes.add(shape::Circle::new(60.).into()).into(),
                             material: materials
                                 .add(ColorMaterial::from(Color::rgba(1., 1., 1., 0.5))),
-                            transform: transform.clone(),
                             ..default()
                         },
                     })
@@ -398,11 +397,11 @@ fn bullet_hit_despawns_player(
 fn shield_blocks_bullets(
     mut commands: Commands,
     bullets: Query<(Entity, &Transform), With<Bullet>>,
-    shields: Query<&Transform, With<Shield>>,
+    shields: Query<&GlobalTransform, With<Shield>>,
 ) {
     for (bullet, bloc) in bullets.iter() {
         for shield in shields.iter() {
-            if bloc.translation.distance(shield.translation) < 60. {
+            if bloc.translation.distance(shield.translation()) < 60. {
                 commands.entity(bullet).despawn();
             }
         }
