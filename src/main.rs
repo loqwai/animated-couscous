@@ -131,7 +131,7 @@ fn start_local_server(mut commands: Commands) {
     let connect_addr = std::env::var("CONNECT_TO").unwrap_or("localhost:3191".to_string());
 
     let (tx, rx) = server::serve(&listen_addr, &connect_addr);
-    let poll_timer = Timer::new(Duration::from_secs(10), TimerMode::Repeating);
+    let poll_timer = Timer::new(Duration::from_secs(1), TimerMode::Repeating);
 
     commands.insert_resource(NetServer { tx, rx, poll_timer });
 }
