@@ -48,6 +48,7 @@ fn main() {
         .add_systems(Update, broadcast_state)
         .add_systems(Update, activate_shield)
         .add_systems(Update, shield_blocks_bullets)
+        .add_systems(Update, despawn_shield_on_ttl)
         .run();
 }
 
@@ -292,7 +293,7 @@ fn activate_shield(
                         mesh_bundle: MaterialMesh2dBundle {
                             mesh: meshes.add(shape::Circle::new(60.).into()).into(),
                             material: materials
-                                .add(ColorMaterial::from(Color::rgba(1., 1., 1., 0.5))),
+                                .add(ColorMaterial::from(Color::rgba(1., 1., 1., 0.2))),
                             transform: Transform::from_translation(Vec3::new(0., 0., 0.1)),
                             ..default()
                         },
@@ -405,6 +406,19 @@ fn shield_blocks_bullets(
             if bloc.translation.distance(shield.translation()) < 60. {
                 commands.entity(bullet).despawn();
             }
+        }
+    }
+}
+
+fn despawn_shield_on_ttl(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut shields: Query<(Entity, &mut Shield)>,
+) {
+    for (entity, mut shield) in shields.iter_mut() {
+        shield.ttl.tick(time.delta());
+        if shield.ttl.finished() {
+            commands.entity(entity).despawn();
         }
     }
 }
