@@ -11,7 +11,7 @@ use crossbeam_channel::{Receiver, Sender};
 use protos::generated::applesauce::wrapper::Inner;
 use rand::prelude::*;
 
-use protos::generated::applesauce;
+use protos::generated::applesauce::{self};
 use uuid::Uuid;
 
 //
@@ -34,6 +34,7 @@ fn main() {
             ..Default::default()
         }))
         .add_event::<InputEvent>()
+        .add_event::<RemoteClientOutOfSyncEvent>()
         .add_event::<PlayerSpawnEvent>()
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
@@ -104,7 +105,6 @@ struct BulletBundle {
 struct NetServer {
     tx: Sender<applesauce::Wrapper>,
     rx: Receiver<applesauce::Wrapper>,
-    poll_timer: Timer,
 }
 
 #[derive(Event)]
@@ -126,6 +126,9 @@ struct PlayerSpawnEvent {
     position: Vec3,
     color: Vec3,
 }
+
+#[derive(Event)]
+struct RemoteClientOutOfSyncEvent;
 
 fn setup(
     mut commands: Commands,
@@ -150,15 +153,15 @@ fn start_local_server(mut commands: Commands) {
     let connect_addr = std::env::var("CONNECT_TO").unwrap_or("localhost:3191".to_string());
 
     let (tx, rx) = server::serve(&listen_addr, &connect_addr);
-    let poll_timer = Timer::new(Duration::from_secs(1), TimerMode::Repeating);
 
-    commands.insert_resource(NetServer { tx, rx, poll_timer });
+    commands.insert_resource(NetServer { tx, rx });
 }
 
 fn incoming_network_messages_to_events(
     connection: ResMut<NetServer>,
     mut input_events: EventWriter<InputEvent>,
     mut player_spawn_events: EventWriter<PlayerSpawnEvent>,
+    mut out_of_sync_events: EventWriter<RemoteClientOutOfSyncEvent>,
 ) {
     for input in connection.rx.try_iter() {
         match input.inner.unwrap() {
@@ -190,6 +193,9 @@ fn incoming_network_messages_to_events(
                         color: Vec3::new(player_spawn.r, player_spawn.g, player_spawn.b),
                     });
                 }
+            }
+            Inner::OutOfSync(_) => {
+                out_of_sync_events.send(RemoteClientOutOfSyncEvent);
             }
         }
     }
@@ -326,6 +332,7 @@ fn ensure_main_player(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     main_players: Query<Entity, With<MainPlayer>>,
+    mut out_of_sync_events: EventWriter<RemoteClientOutOfSyncEvent>,
 ) {
     if main_players.iter().count() == 0 {
         let id = uuid::Uuid::new_v4().to_string();
@@ -354,6 +361,8 @@ fn ensure_main_player(
                 },
             },
         });
+
+        out_of_sync_events.send(RemoteClientOutOfSyncEvent);
     }
 }
 
@@ -500,15 +509,15 @@ fn write_inputs_to_server_fallible(
 }
 
 fn broadcast_state(
-    mut server: ResMut<NetServer>,
-    time: Res<Time>,
+    server: ResMut<NetServer>,
     players: Query<(&Player, &Transform)>,
+    mut out_of_sync_events: EventReader<RemoteClientOutOfSyncEvent>,
 ) {
-    server.poll_timer.tick(time.delta());
-
-    if !server.poll_timer.finished() {
+    if out_of_sync_events.is_empty() {
         return;
     }
+
+    for _ in out_of_sync_events.read() {}
 
     let players = players
         .iter()

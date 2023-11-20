@@ -7,8 +7,9 @@ use std::{
 use crossbeam_channel::{Receiver, Sender};
 use lru::LruCache;
 use protobuf::{CodedInputStream, Message};
+use uuid::Uuid;
 
-use crate::protos::generated::applesauce;
+use crate::protos::generated::applesauce::{self, OutOfSync, Wrapper};
 
 enum Event {
     Disconnect(TcpStream),
@@ -85,12 +86,21 @@ pub(crate) fn serve(
     return (tx_input, rx_output);
 }
 
-fn handle_connection(stream: TcpStream, events_tx: Sender<Event>) {
+fn handle_connection(mut stream: TcpStream, events_tx: Sender<Event>) {
     events_tx
         .send(Event::Connect(stream.try_clone().unwrap()))
         .unwrap();
 
     thread::spawn(move || {
+        let out_of_sync_message = Wrapper {
+            id: Uuid::new_v4().to_string(),
+            inner: Some(applesauce::wrapper::Inner::OutOfSync(OutOfSync::new())),
+            ..Default::default()
+        };
+        out_of_sync_message
+            .write_length_delimited_to_writer(&mut stream)
+            .unwrap();
+
         let mut input_stream = stream.try_clone().unwrap();
         let mut input_stream = CodedInputStream::new(&mut input_stream);
         loop {

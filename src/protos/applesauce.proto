@@ -7,6 +7,7 @@ message Wrapper {
     Input input = 2;
     Player player_spawn = 3;
     State state = 4;
+    OutOfSync out_of_sync = 5;
   }
 }
 
@@ -35,3 +36,5 @@ message Input {
 message State {
   repeated Player players = 1;
 }
+
+message OutOfSync {}
