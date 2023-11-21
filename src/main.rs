@@ -34,7 +34,7 @@ fn main() {
             }),
             ..Default::default()
         }))
-        .add_event::<RemoteClientOutOfSyncEvent>()
+        .add_event::<BroadcastStateEvent>()
         .add_event::<IAmOutOfSyncEvent>()
         .add_event::<PlayerSpawnEvent>()
         .add_event::<MoveEvent>()
@@ -158,7 +158,7 @@ struct PlayerSpawnEvent {
 }
 
 #[derive(Event)]
-struct RemoteClientOutOfSyncEvent;
+struct BroadcastStateEvent;
 
 #[derive(Event)]
 struct IAmOutOfSyncEvent;
@@ -193,7 +193,7 @@ fn start_local_server(mut commands: Commands) {
 fn incoming_network_messages_to_events(
     connection: ResMut<NetServer>,
     mut player_spawn_events: EventWriter<PlayerSpawnEvent>,
-    mut out_of_sync_events: EventWriter<RemoteClientOutOfSyncEvent>,
+    mut out_of_sync_events: EventWriter<BroadcastStateEvent>,
     mut move_events: EventWriter<MoveEvent>,
     mut fire_events: EventWriter<FireEvent>,
     mut block_events: EventWriter<BlockEvent>,
@@ -217,7 +217,7 @@ fn incoming_network_messages_to_events(
                 }
             }
             Inner::OutOfSync(_) => {
-                out_of_sync_events.send(RemoteClientOutOfSyncEvent);
+                out_of_sync_events.send(BroadcastStateEvent);
             }
             Inner::Move(e) => {
                 move_events.send(MoveEvent {
@@ -391,7 +391,7 @@ fn ensure_main_player(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     main_players: Query<Entity, With<MainPlayer>>,
-    mut out_of_sync_events: EventWriter<RemoteClientOutOfSyncEvent>,
+    mut broadcast_state_events: EventWriter<BroadcastStateEvent>,
 ) {
     if main_players.iter().count() == 0 {
         let id = uuid::Uuid::new_v4().to_string();
@@ -421,7 +421,7 @@ fn ensure_main_player(
             },
         });
 
-        out_of_sync_events.send(RemoteClientOutOfSyncEvent);
+        broadcast_state_events.send(BroadcastStateEvent);
     }
 }
 
@@ -639,13 +639,13 @@ fn send_move_event(
 fn broadcast_state(
     server: ResMut<NetServer>,
     players: Query<(&Player, &Transform)>,
-    mut out_of_sync_events: EventReader<RemoteClientOutOfSyncEvent>,
+    mut broadcast_state_events: EventReader<BroadcastStateEvent>,
 ) {
-    if out_of_sync_events.is_empty() {
+    if broadcast_state_events.is_empty() {
         return;
     }
 
-    for _ in out_of_sync_events.read() {}
+    for _ in broadcast_state_events.read() {}
 
     let players = players
         .iter()
