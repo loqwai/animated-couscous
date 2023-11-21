@@ -85,9 +85,10 @@ struct MainPlayerBundle {
 }
 
 #[derive(Component)]
-struct Move {
-    direction: MoveDirection,
-}
+struct MoveLeft;
+
+#[derive(Component)]
+struct MoveRight;
 
 #[derive(Component)]
 struct Bullet;
@@ -118,6 +119,7 @@ struct NetServer {
     rx: Receiver<applesauce::Wrapper>,
 }
 
+#[derive(Clone, Copy)]
 enum MoveEventAction {
     Start,
     Stop,
@@ -277,27 +279,35 @@ fn handle_player_move_event_start_stops(
         match player {
             None => out_of_sync_events.send(IAmOutOfSyncEvent),
             Some((entity, _)) => {
-                match event.action {
-                    MoveEventAction::Start => commands.entity(entity).insert(Move {
-                        direction: event.direction,
-                    }),
-                    MoveEventAction::Stop => commands.entity(entity).remove::<Move>(),
+                match (event.action, event.direction) {
+                    (MoveEventAction::Start, MoveDirection::Left) => {
+                        commands.entity(entity).insert(MoveLeft)
+                    }
+                    (MoveEventAction::Stop, MoveDirection::Left) => {
+                        commands.entity(entity).remove::<MoveLeft>()
+                    }
+                    (MoveEventAction::Start, MoveDirection::Right) => {
+                        commands.entity(entity).insert(MoveRight)
+                    }
+                    (MoveEventAction::Stop, MoveDirection::Right) => {
+                        commands.entity(entity).remove::<MoveRight>()
+                    }
                 };
             }
         };
     }
 }
 
-fn move_moveables(mut moveables: Query<(&Move, &mut Transform)>) {
-    for (moveable, mut transform) in moveables.iter_mut() {
-        match moveable.direction {
-            MoveDirection::Left => {
-                transform.translation.x -= 2.;
-            }
-            MoveDirection::Right => {
-                transform.translation.x += 2.;
-            }
-        }
+fn move_moveables(
+    mut left_movers: Query<&mut Transform, (With<MoveLeft>, Without<MoveRight>)>,
+    mut right_movers: Query<&mut Transform, (With<MoveRight>, Without<MoveLeft>)>,
+) {
+    for mut left_mover in left_movers.iter_mut() {
+        left_mover.translation.x -= 2.;
+    }
+
+    for mut right_mover in right_movers.iter_mut() {
+        right_mover.translation.x += 2.;
     }
 }
 
