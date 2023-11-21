@@ -39,6 +39,7 @@ fn main() {
         .add_event::<IAmOutOfSyncEvent>()
         .add_event::<PlayerSpawnEvent>()
         .add_event::<MoveEvent>()
+        .add_event::<FireEvent>()
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
         .add_systems(Update, ensure_main_player)
@@ -121,9 +122,6 @@ struct NetServer {
 struct InputEvent {
     player_id: String,
 
-    aim_x: f32,
-    aim_y: f32,
-    fire_button_pressed: bool,
     shield_button_pressed: bool,
 }
 
@@ -143,6 +141,13 @@ struct MoveEvent {
     player_id: String,
     direction: MoveDirection,
     action: MoveEventAction,
+}
+
+#[derive(Event)]
+struct FireEvent {
+    player_id: String,
+    aim_x: f32,
+    aim_y: f32,
 }
 
 #[derive(Event)]
@@ -191,16 +196,13 @@ fn incoming_network_messages_to_events(
     mut player_spawn_events: EventWriter<PlayerSpawnEvent>,
     mut out_of_sync_events: EventWriter<RemoteClientOutOfSyncEvent>,
     mut move_events: EventWriter<MoveEvent>,
+    mut fire_events: EventWriter<FireEvent>,
 ) {
     for input in connection.rx.try_iter() {
         match input.inner.unwrap() {
             Inner::Input(input) => {
                 input_events.send(InputEvent {
                     player_id: input.player_id,
-
-                    aim_x: input.aim_x,
-                    aim_y: input.aim_y,
-                    fire_button_pressed: input.fire_button_pressed,
                     shield_button_pressed: input.shield_button_pressed,
                 });
             }
@@ -234,6 +236,13 @@ fn incoming_network_messages_to_events(
                         applesauce::EventAction::START => MoveEventAction::Start,
                         applesauce::EventAction::STOP => MoveEventAction::Stop,
                     },
+                });
+            }
+            Inner::Fire(e) => {
+                fire_events.send(FireEvent {
+                    player_id: e.player_id,
+                    aim_x: e.aim_x,
+                    aim_y: e.aim_y,
                 });
             }
         }
@@ -299,15 +308,11 @@ fn fire_bullets(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut events: EventReader<InputEvent>,
+    mut events: EventReader<FireEvent>,
     mut out_of_sync_events: EventWriter<IAmOutOfSyncEvent>,
     players: Query<(&Player, &Transform)>,
 ) {
     for event in events.read() {
-        if !event.fire_button_pressed {
-            continue;
-        }
-
         match players.iter().find(|(p, _)| p.id == event.player_id) {
             Some((_, transform)) => {
                 let ray = Vec3::new(event.aim_x, event.aim_y, 0.);
@@ -572,18 +577,29 @@ fn write_inputs_to_server_fallible(
         .unwrap();
     }
 
-    let aim_vector = cursor_position - player_transform.translation;
+    if mouse_button_input.just_pressed(MouseButton::Left) {
+        let aim_vector = cursor_position - player_transform.translation;
+        server
+            .tx
+            .send(applesauce::Wrapper {
+                id: Uuid::new_v4().to_string(),
+                inner: Some(Inner::Fire(applesauce::Fire {
+                    player_id: player.id.clone(),
+                    aim_x: aim_vector.x,
+                    aim_y: aim_vector.y,
+                    ..Default::default()
+                })),
+                ..Default::default()
+            })
+            .unwrap();
+    }
 
-    let fire_button_pressed = mouse_button_input.just_pressed(MouseButton::Left);
     let shield_button_pressed = mouse_button_input.just_pressed(MouseButton::Right);
 
     let wrapper = applesauce::Wrapper {
         id: Uuid::new_v4().into(),
         inner: Some(Inner::Input(applesauce::Input {
             player_id: player.id.clone(),
-            aim_x: aim_vector.x,
-            aim_y: aim_vector.y,
-            fire_button_pressed,
             shield_button_pressed,
             ..Default::default()
         })),

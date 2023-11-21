@@ -9,6 +9,7 @@ message Wrapper {
     State state = 4;
     OutOfSync out_of_sync = 5;
     Move move = 6;
+    Fire fire = 7;
   }
 }
 
@@ -26,10 +27,7 @@ message Player {
 message Input {
   string player_id = 1;
 
-  float aim_x = 4;
-  float aim_y = 5;
-  bool fire_button_pressed = 6;
-  bool shield_button_pressed = 7;
+  bool shield_button_pressed = 2;
 }
 
 message State {
@@ -50,6 +48,13 @@ message Move {
   string player_id = 1;
   Direction direction = 2;
   EventAction action = 3;
+}
+
+message Fire {
+  string player_id = 1;
+
+  float aim_x = 2;
+  float aim_y = 3;
 }
 
 message OutOfSync {}
