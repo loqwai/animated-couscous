@@ -4,12 +4,12 @@ message Wrapper {
   string id = 1;
 
   oneof inner {
-    Input input = 2;
-    Player player_spawn = 3;
-    State state = 4;
-    OutOfSync out_of_sync = 5;
-    Move move = 6;
-    Fire fire = 7;
+    Player player_spawn = 2;
+    State state = 3;
+    OutOfSync out_of_sync = 4;
+    Move move = 5;
+    Fire fire = 6;
+    Block block = 7;
   }
 }
 
@@ -22,12 +22,6 @@ message Player {
   float r = 5;
   float g = 6;
   float b = 7;
-}
-
-message Input {
-  string player_id = 1;
-
-  bool shield_button_pressed = 2;
 }
 
 message State {
@@ -55,6 +49,10 @@ message Fire {
 
   float aim_x = 2;
   float aim_y = 3;
+}
+
+message Block {
+  string player_id = 1;
 }
 
 message OutOfSync {}

@@ -34,12 +34,12 @@ fn main() {
             }),
             ..Default::default()
         }))
-        .add_event::<InputEvent>()
         .add_event::<RemoteClientOutOfSyncEvent>()
         .add_event::<IAmOutOfSyncEvent>()
         .add_event::<PlayerSpawnEvent>()
         .add_event::<MoveEvent>()
         .add_event::<FireEvent>()
+        .add_event::<BlockEvent>()
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
         .add_systems(Update, ensure_main_player)
@@ -118,13 +118,6 @@ struct NetServer {
     rx: Receiver<applesauce::Wrapper>,
 }
 
-#[derive(Event)]
-struct InputEvent {
-    player_id: String,
-
-    shield_button_pressed: bool,
-}
-
 enum MoveEventAction {
     Start,
     Stop,
@@ -148,6 +141,11 @@ struct FireEvent {
     player_id: String,
     aim_x: f32,
     aim_y: f32,
+}
+
+#[derive(Event)]
+struct BlockEvent {
+    player_id: String,
 }
 
 #[derive(Event)]
@@ -192,20 +190,14 @@ fn start_local_server(mut commands: Commands) {
 
 fn incoming_network_messages_to_events(
     connection: ResMut<NetServer>,
-    mut input_events: EventWriter<InputEvent>,
     mut player_spawn_events: EventWriter<PlayerSpawnEvent>,
     mut out_of_sync_events: EventWriter<RemoteClientOutOfSyncEvent>,
     mut move_events: EventWriter<MoveEvent>,
     mut fire_events: EventWriter<FireEvent>,
+    mut block_events: EventWriter<BlockEvent>,
 ) {
     for input in connection.rx.try_iter() {
         match input.inner.unwrap() {
-            Inner::Input(input) => {
-                input_events.send(InputEvent {
-                    player_id: input.player_id,
-                    shield_button_pressed: input.shield_button_pressed,
-                });
-            }
             Inner::PlayerSpawn(player_spawn) => {
                 player_spawn_events.send(PlayerSpawnEvent {
                     player_id: player_spawn.id,
@@ -243,6 +235,11 @@ fn incoming_network_messages_to_events(
                     player_id: e.player_id,
                     aim_x: e.aim_x,
                     aim_y: e.aim_y,
+                });
+            }
+            Inner::Block(e) => {
+                block_events.send(BlockEvent {
+                    player_id: e.player_id,
                 });
             }
         }
@@ -349,18 +346,15 @@ fn fire_bullets(
 
 fn activate_shield(
     mut commands: Commands,
-    mut events: EventReader<InputEvent>,
+    mut block_events: EventReader<BlockEvent>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut out_of_sync_events: EventWriter<IAmOutOfSyncEvent>,
     players: Query<(Entity, &Player)>,
 ) {
-    for event in events.read() {
-        if !event.shield_button_pressed {
-            continue;
-        }
-
+    for event in block_events.read() {
         match players.iter().find(|(_, p)| p.id == event.player_id) {
+            None => out_of_sync_events.send(IAmOutOfSyncEvent),
             Some((entity, _)) => {
                 let shield = commands
                     .spawn(ShieldBundle {
@@ -377,9 +371,6 @@ fn activate_shield(
                     })
                     .id();
                 commands.entity(entity).add_child(shield);
-            }
-            None => {
-                out_of_sync_events.send(IAmOutOfSyncEvent);
             }
         }
     }
@@ -594,19 +585,20 @@ fn write_inputs_to_server_fallible(
             .unwrap();
     }
 
-    let shield_button_pressed = mouse_button_input.just_pressed(MouseButton::Right);
+    if mouse_button_input.just_pressed(MouseButton::Right) {
+        server
+            .tx
+            .send(applesauce::Wrapper {
+                id: Uuid::new_v4().to_string(),
+                inner: Some(Inner::Block(applesauce::Block {
+                    player_id: player.id.clone(),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            })
+            .unwrap();
+    }
 
-    let wrapper = applesauce::Wrapper {
-        id: Uuid::new_v4().into(),
-        inner: Some(Inner::Input(applesauce::Input {
-            player_id: player.id.clone(),
-            shield_button_pressed,
-            ..Default::default()
-        })),
-        ..Default::default()
-    };
-
-    server.tx.send(wrapper).unwrap();
     Some(())
 }
 
