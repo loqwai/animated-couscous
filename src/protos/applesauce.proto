@@ -8,6 +8,7 @@ message Wrapper {
     Player player_spawn = 3;
     State state = 4;
     OutOfSync out_of_sync = 5;
+    Move move = 6;
   }
 }
 
@@ -24,8 +25,6 @@ message Player {
 
 message Input {
   string player_id = 1;
-  bool move_right = 2;
-  bool move_left = 3;
 
   float aim_x = 4;
   float aim_y = 5;
@@ -35,6 +34,22 @@ message Input {
 
 message State {
   repeated Player players = 1;
+}
+
+enum Direction {
+  LEFT = 0;
+  RIGHT = 1;
+}
+
+enum EventAction {
+  START = 0;
+  STOP = 1;
+}
+
+message Move {
+  string player_id = 1;
+  Direction direction = 2;
+  EventAction action = 3;
 }
 
 message OutOfSync {}

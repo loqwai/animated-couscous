@@ -8,6 +8,7 @@ use bevy::sprite::MaterialMesh2dBundle;
 use bevy::window::WindowPlugin;
 use bevy::window::{PrimaryWindow, WindowResolution};
 use crossbeam_channel::{Receiver, Sender};
+use protobuf::EnumOrUnknown;
 use protos::generated::applesauce::wrapper::Inner;
 use rand::prelude::*;
 
@@ -37,10 +38,12 @@ fn main() {
         .add_event::<RemoteClientOutOfSyncEvent>()
         .add_event::<IAmOutOfSyncEvent>()
         .add_event::<PlayerSpawnEvent>()
+        .add_event::<MoveEvent>()
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
         .add_systems(Update, ensure_main_player)
-        .add_systems(Update, move_player)
+        .add_systems(Update, handle_player_move_event_start_stops)
+        .add_systems(Update, move_moveables)
         .add_systems(Update, fire_bullets)
         .add_systems(Update, bullet_moves_forward_system)
         .add_systems(Update, spawn_player)
@@ -81,6 +84,11 @@ struct MainPlayerBundle {
 }
 
 #[derive(Component)]
+struct Move {
+    direction: MoveDirection,
+}
+
+#[derive(Component)]
 struct Bullet;
 
 #[derive(Component)]
@@ -113,13 +121,28 @@ struct NetServer {
 struct InputEvent {
     player_id: String,
 
-    move_left: bool,
-    move_right: bool,
-
     aim_x: f32,
     aim_y: f32,
     fire_button_pressed: bool,
     shield_button_pressed: bool,
+}
+
+enum MoveEventAction {
+    Start,
+    Stop,
+}
+
+#[derive(Clone, Copy)]
+enum MoveDirection {
+    Left,
+    Right,
+}
+
+#[derive(Event)]
+struct MoveEvent {
+    player_id: String,
+    direction: MoveDirection,
+    action: MoveEventAction,
 }
 
 #[derive(Event)]
@@ -167,15 +190,13 @@ fn incoming_network_messages_to_events(
     mut input_events: EventWriter<InputEvent>,
     mut player_spawn_events: EventWriter<PlayerSpawnEvent>,
     mut out_of_sync_events: EventWriter<RemoteClientOutOfSyncEvent>,
+    mut move_events: EventWriter<MoveEvent>,
 ) {
     for input in connection.rx.try_iter() {
         match input.inner.unwrap() {
             Inner::Input(input) => {
                 input_events.send(InputEvent {
                     player_id: input.player_id,
-
-                    move_left: input.move_left,
-                    move_right: input.move_right,
 
                     aim_x: input.aim_x,
                     aim_y: input.aim_y,
@@ -202,6 +223,19 @@ fn incoming_network_messages_to_events(
             Inner::OutOfSync(_) => {
                 out_of_sync_events.send(RemoteClientOutOfSyncEvent);
             }
+            Inner::Move(e) => {
+                move_events.send(MoveEvent {
+                    player_id: e.player_id,
+                    direction: match e.direction.unwrap() {
+                        applesauce::Direction::LEFT => MoveDirection::Left,
+                        applesauce::Direction::RIGHT => MoveDirection::Right,
+                    },
+                    action: match e.action.unwrap() {
+                        applesauce::EventAction::START => MoveEventAction::Start,
+                        applesauce::EventAction::STOP => MoveEventAction::Stop,
+                    },
+                });
+            }
         }
     }
 }
@@ -223,24 +257,39 @@ fn despawn_things_that_need_despawning(
     }
 }
 
-// keyboard
-/// This system prints 'A' key state
-fn move_player(mut players: Query<(&Player, &mut Transform)>, mut events: EventReader<InputEvent>) {
-    for event in events.read() {
+fn handle_player_move_event_start_stops(
+    mut commands: Commands,
+    mut players: Query<(Entity, &Player)>,
+    mut move_events: EventReader<MoveEvent>,
+    mut out_of_sync_events: EventWriter<IAmOutOfSyncEvent>,
+) {
+    for event in move_events.read() {
         let player = players
             .iter_mut()
-            .find(|(player, _)| player.id == event.player_id);
+            .find(|(_, player)| player.id == event.player_id);
 
         match player {
-            None => continue,
-            Some((_, mut transform)) => {
-                if event.move_left {
-                    transform.translation.x -= 2.;
-                }
+            None => out_of_sync_events.send(IAmOutOfSyncEvent),
+            Some((entity, _)) => {
+                match event.action {
+                    MoveEventAction::Start => commands.entity(entity).insert(Move {
+                        direction: event.direction,
+                    }),
+                    MoveEventAction::Stop => commands.entity(entity).remove::<Move>(),
+                };
+            }
+        };
+    }
+}
 
-                if event.move_right {
-                    transform.translation.x += 2.;
-                }
+fn move_moveables(mut moveables: Query<(&Move, &mut Transform)>) {
+    for (moveable, mut transform) in moveables.iter_mut() {
+        match moveable.direction {
+            MoveDirection::Left => {
+                transform.translation.x -= 2.;
+            }
+            MoveDirection::Right => {
+                transform.translation.x += 2.;
             }
         }
     }
@@ -484,10 +533,45 @@ fn write_inputs_to_server_fallible(
         .unwrap()
         .origin;
 
-    let move_left = keyboard_input.pressed(KeyCode::A);
-    let move_right = keyboard_input.pressed(KeyCode::D);
-
     let (player_transform, player) = main_players.get_single().ok()?;
+
+    if keyboard_input.just_pressed(KeyCode::A) {
+        send_move_event(
+            &server,
+            player.id.clone(),
+            MoveEventAction::Start,
+            MoveDirection::Left,
+        )
+        .unwrap();
+    }
+    if keyboard_input.just_released(KeyCode::A) {
+        send_move_event(
+            &server,
+            player.id.clone(),
+            MoveEventAction::Stop,
+            MoveDirection::Left,
+        )
+        .unwrap();
+    }
+    if keyboard_input.just_pressed(KeyCode::D) {
+        send_move_event(
+            &server,
+            player.id.clone(),
+            MoveEventAction::Start,
+            MoveDirection::Right,
+        )
+        .unwrap();
+    }
+    if keyboard_input.just_released(KeyCode::D) {
+        send_move_event(
+            &server,
+            player.id.clone(),
+            MoveEventAction::Stop,
+            MoveDirection::Right,
+        )
+        .unwrap();
+    }
+
     let aim_vector = cursor_position - player_transform.translation;
 
     let fire_button_pressed = mouse_button_input.just_pressed(MouseButton::Left);
@@ -497,8 +581,6 @@ fn write_inputs_to_server_fallible(
         id: Uuid::new_v4().into(),
         inner: Some(Inner::Input(applesauce::Input {
             player_id: player.id.clone(),
-            move_left,
-            move_right,
             aim_x: aim_vector.x,
             aim_y: aim_vector.y,
             fire_button_pressed,
@@ -510,6 +592,30 @@ fn write_inputs_to_server_fallible(
 
     server.tx.send(wrapper).unwrap();
     Some(())
+}
+
+fn send_move_event(
+    server: &NetServer,
+    player_id: String,
+    action: MoveEventAction,
+    direction: MoveDirection,
+) -> Result<(), crossbeam_channel::SendError<applesauce::Wrapper>> {
+    server.tx.send(applesauce::Wrapper {
+        id: Uuid::new_v4().to_string(),
+        inner: Some(Inner::Move(applesauce::Move {
+            player_id: player_id,
+            direction: EnumOrUnknown::new(match direction {
+                MoveDirection::Left => applesauce::Direction::LEFT,
+                MoveDirection::Right => applesauce::Direction::RIGHT,
+            }),
+            action: EnumOrUnknown::new(match action {
+                MoveEventAction::Start => applesauce::EventAction::START,
+                MoveEventAction::Stop => applesauce::EventAction::STOP,
+            }),
+            ..Default::default()
+        })),
+        ..Default::default()
+    })
 }
 
 fn broadcast_state(
