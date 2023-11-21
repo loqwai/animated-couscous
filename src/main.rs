@@ -35,6 +35,7 @@ fn main() {
         }))
         .add_event::<InputEvent>()
         .add_event::<RemoteClientOutOfSyncEvent>()
+        .add_event::<IAmOutOfSyncEvent>()
         .add_event::<PlayerSpawnEvent>()
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
@@ -47,6 +48,7 @@ fn main() {
         .add_systems(Update, write_inputs_to_server)
         .add_systems(Update, incoming_network_messages_to_events)
         .add_systems(Update, broadcast_state)
+        .add_systems(Update, broadcast_i_am_out_of_sync)
         .add_systems(Update, activate_shield)
         .add_systems(Update, shield_blocks_bullets)
         .add_systems(Update, despawn_shield_on_ttl)
@@ -129,6 +131,9 @@ struct PlayerSpawnEvent {
 
 #[derive(Event)]
 struct RemoteClientOutOfSyncEvent;
+
+#[derive(Event)]
+struct IAmOutOfSyncEvent;
 
 fn setup(
     mut commands: Commands,
@@ -246,6 +251,7 @@ fn fire_bullets(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut events: EventReader<InputEvent>,
+    mut out_of_sync_events: EventWriter<IAmOutOfSyncEvent>,
     players: Query<(&Player, &Transform)>,
 ) {
     for event in events.read() {
@@ -281,10 +287,7 @@ fn fire_bullets(
                 });
             }
             None => {
-                println!(
-                    "Just received a fire bullet event for a non extant player: {}",
-                    event.player_id
-                )
+                out_of_sync_events.send(IAmOutOfSyncEvent);
             }
         };
     }
@@ -295,6 +298,7 @@ fn activate_shield(
     mut events: EventReader<InputEvent>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut out_of_sync_events: EventWriter<IAmOutOfSyncEvent>,
     players: Query<(Entity, &Player)>,
 ) {
     for event in events.read() {
@@ -321,7 +325,7 @@ fn activate_shield(
                 commands.entity(entity).add_child(shield);
             }
             None => {
-                println!("Shield activated for nonextant player: {}", event.player_id);
+                out_of_sync_events.send(IAmOutOfSyncEvent);
             }
         }
     }
@@ -544,6 +548,26 @@ fn broadcast_state(
         .send(applesauce::Wrapper {
             id: uuid::Uuid::new_v4().to_string(),
             inner: Some(Inner::State(state)),
+            ..Default::default()
+        })
+        .unwrap();
+}
+
+fn broadcast_i_am_out_of_sync(
+    server: ResMut<NetServer>,
+    mut out_of_sync_events: EventReader<IAmOutOfSyncEvent>,
+) {
+    if out_of_sync_events.is_empty() {
+        return;
+    }
+
+    for _ in out_of_sync_events.read() {}
+
+    server
+        .tx
+        .send(applesauce::Wrapper {
+            id: uuid::Uuid::new_v4().to_string(),
+            inner: Some(Inner::OutOfSync(applesauce::OutOfSync::new())),
             ..Default::default()
         })
         .unwrap();
