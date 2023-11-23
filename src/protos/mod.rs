@@ -47,3 +47,21 @@ impl Into<protobuf::MessageField<generated::applesauce::Color>> for generated::a
         protobuf::MessageField(Some(Box::new(self)))
     }
 }
+
+impl From<(bool, bool)> for generated::applesauce::MoveData {
+    fn from((moving_left, moving_right): (bool, bool)) -> Self {
+        Self {
+            moving_left,
+            moving_right,
+            special_fields: Default::default(),
+        }
+    }
+}
+
+impl Into<protobuf::MessageField<generated::applesauce::MoveData>>
+    for generated::applesauce::MoveData
+{
+    fn into(self) -> protobuf::MessageField<generated::applesauce::MoveData> {
+        protobuf::MessageField(Some(Box::new(self)))
+    }
+}

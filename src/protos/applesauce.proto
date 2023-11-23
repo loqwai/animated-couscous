@@ -5,10 +5,9 @@ message Wrapper {
 
   oneof inner {
     Player player_sync = 2;
-    State state = 3;
-    OutOfSync out_of_sync = 4;
-    Fire fire = 5;
-    Block block = 6;
+    OutOfSync out_of_sync = 3;
+    Fire fire = 4;
+    Block block = 5;
   }
 }
 
@@ -16,26 +15,12 @@ message Player {
   string id = 1;
   Vec3 position = 2;
   Color color = 3;
-  optional MoveData move_data = 4;
+  MoveData move_data = 4;
 }
 
 message MoveData {
-  Direction direction = 4;
-  EventAction action = 5;
-}
-
-message State {
-  repeated Player players = 1;
-}
-
-enum Direction {
-  LEFT = 0;
-  RIGHT = 1;
-}
-
-enum EventAction {
-  START = 0;
-  STOP = 1;
+  bool moving_left = 1;
+  bool moving_right = 2;
 }
 
 message Vec3 {

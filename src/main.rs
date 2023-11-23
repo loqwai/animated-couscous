@@ -8,7 +8,6 @@ use bevy::sprite::MaterialMesh2dBundle;
 use bevy::window::WindowPlugin;
 use bevy::window::{PrimaryWindow, WindowResolution};
 use crossbeam_channel::{Receiver, Sender};
-use protobuf::EnumOrUnknown;
 use protos::generated::applesauce::wrapper::Inner;
 use rand::prelude::*;
 
@@ -118,21 +117,9 @@ struct NetServer {
 }
 
 #[derive(Clone, Copy)]
-enum MoveEventAction {
-    Start,
-    Stop,
-}
-
-#[derive(Clone, Copy)]
-enum MoveDirection {
-    Left,
-    Right,
-}
-
-#[derive(Clone, Copy)]
 struct MoveData {
-    direction: MoveDirection,
-    action: MoveEventAction,
+    moving_left: bool,
+    moving_right: bool,
 }
 
 #[derive(Event)]
@@ -152,7 +139,7 @@ struct PlayerSyncEvent {
     player_id: String,
     position: Vec3,
     color: Color,
-    move_data: Option<MoveData>,
+    move_data: MoveData,
 }
 
 #[derive(Event)]
@@ -202,30 +189,11 @@ fn incoming_network_messages_to_events(
                     player_id: e.id,
                     position: e.position.unwrap().into(),
                     color: e.color.unwrap().into(),
-                    move_data: match e.move_data.clone().unwrap().into() {
-                        None => None,
-                        Some(move_data) => Some(MoveData {
-                            direction: match move_data.direction.unwrap() {
-                                applesauce::Direction::LEFT => MoveDirection::Left,
-                                applesauce::Direction::RIGHT => MoveDirection::Right,
-                            },
-                            action: match move_data.action.unwrap() {
-                                applesauce::EventAction::START => MoveEventAction::Start,
-                                applesauce::EventAction::STOP => MoveEventAction::Stop,
-                            },
-                        }),
+                    move_data: MoveData {
+                        moving_left: e.move_data.moving_left,
+                        moving_right: e.move_data.moving_right,
                     },
                 });
-            }
-            Inner::State(state) => {
-                for player_spawn in state.players.iter() {
-                    player_spawn_events.send(PlayerSyncEvent {
-                        player_id: player_spawn.id.clone(),
-                        position: player_spawn.position.clone().unwrap().into(),
-                        color: player_spawn.color.clone().unwrap().into(),
-                        move_data: None, // TODO: We should see if the player is moving and send the correct state
-                    });
-                }
             }
             Inner::OutOfSync(_) => {
                 out_of_sync_events.send(BroadcastStateEvent);
@@ -422,22 +390,14 @@ fn sync_players(
                 .id(),
         };
 
-        if let Some(move_event) = event.move_data.clone() {
-            match (move_event.action, move_event.direction) {
-                (MoveEventAction::Start, MoveDirection::Left) => {
-                    commands.entity(entity).insert(MoveLeft)
-                }
-                (MoveEventAction::Stop, MoveDirection::Left) => {
-                    commands.entity(entity).remove::<MoveLeft>()
-                }
-                (MoveEventAction::Start, MoveDirection::Right) => {
-                    commands.entity(entity).insert(MoveRight)
-                }
-                (MoveEventAction::Stop, MoveDirection::Right) => {
-                    commands.entity(entity).remove::<MoveRight>()
-                }
-            };
-        }
+        match event.move_data.moving_left {
+            true => commands.entity(entity).insert(MoveLeft),
+            false => commands.entity(entity).remove::<MoveLeft>(),
+        };
+        match event.move_data.moving_right {
+            true => commands.entity(entity).insert(MoveRight),
+            false => commands.entity(entity).remove::<MoveRight>(),
+        };
     }
 }
 
@@ -524,49 +484,28 @@ fn write_inputs_to_server_fallible(
     let (player_transform, player, color_handle) = main_players.get_single().ok()?;
     let color = colors.get(color_handle).unwrap().color;
 
-    if keyboard_input.just_pressed(KeyCode::A) {
-        send_move_event(
-            &server,
-            player.id.clone(),
-            MoveEventAction::Start,
-            MoveDirection::Left,
-            player_transform.translation,
-            color,
-        )
-        .unwrap();
-    }
-    if keyboard_input.just_released(KeyCode::A) {
-        send_move_event(
-            &server,
-            player.id.clone(),
-            MoveEventAction::Stop,
-            MoveDirection::Left,
-            player_transform.translation,
-            color,
-        )
-        .unwrap();
-    }
-    if keyboard_input.just_pressed(KeyCode::D) {
-        send_move_event(
-            &server,
-            player.id.clone(),
-            MoveEventAction::Start,
-            MoveDirection::Right,
-            player_transform.translation,
-            color,
-        )
-        .unwrap();
-    }
-    if keyboard_input.just_released(KeyCode::D) {
-        send_move_event(
-            &server,
-            player.id.clone(),
-            MoveEventAction::Stop,
-            MoveDirection::Right,
-            player_transform.translation,
-            color,
-        )
-        .unwrap();
+    let a_just_pressed = keyboard_input.just_pressed(KeyCode::A);
+    let d_just_pressed = keyboard_input.just_pressed(KeyCode::D);
+    let a_just_released = keyboard_input.just_released(KeyCode::A);
+    let d_just_released = keyboard_input.just_released(KeyCode::D);
+    let a_pressed = keyboard_input.pressed(KeyCode::A);
+    let d_pressed = keyboard_input.pressed(KeyCode::D);
+
+    if a_just_pressed || d_just_pressed || a_just_released || d_just_released {
+        server
+            .tx
+            .send(applesauce::Wrapper {
+                id: Uuid::new_v4().to_string(),
+                inner: Some(Inner::PlayerSync(applesauce::Player {
+                    id: player.id.clone(),
+                    position: applesauce::Vec3::from(player_transform.translation).into(),
+                    color: applesauce::Color::from(color).into(),
+                    move_data: applesauce::MoveData::from((a_pressed, d_pressed)).into(),
+                    special_fields: Default::default(),
+                })),
+                special_fields: Default::default(),
+            })
+            .unwrap();
     }
 
     if mouse_button_input.just_pressed(MouseButton::Left) {
@@ -603,40 +542,9 @@ fn write_inputs_to_server_fallible(
     Some(())
 }
 
-fn send_move_event(
-    server: &NetServer,
-    player_id: String,
-    action: MoveEventAction,
-    direction: MoveDirection,
-    position: Vec3,
-    color: Color,
-) -> Result<(), crossbeam_channel::SendError<applesauce::Wrapper>> {
-    server.tx.send(applesauce::Wrapper {
-        id: Uuid::new_v4().to_string(),
-        inner: Some(Inner::PlayerSync(applesauce::Player {
-            id: player_id,
-            position: applesauce::Vec3::from(position).into(),
-            color: applesauce::Color::from(color).into(),
-            move_data: protobuf::MessageField(Some(Box::new(applesauce::MoveData {
-                direction: EnumOrUnknown::new(match direction {
-                    MoveDirection::Left => applesauce::Direction::LEFT,
-                    MoveDirection::Right => applesauce::Direction::RIGHT,
-                }),
-                action: EnumOrUnknown::new(match action {
-                    MoveEventAction::Start => applesauce::EventAction::START,
-                    MoveEventAction::Stop => applesauce::EventAction::STOP,
-                }),
-                special_fields: Default::default(),
-            }))),
-            special_fields: Default::default(),
-        })),
-        ..Default::default()
-    })
-}
-
 fn broadcast_state(
     server: ResMut<NetServer>,
-    players: Query<(&Player, &Transform)>,
+    players: Query<(&Player, &Transform, Option<&MoveLeft>, Option<&MoveRight>)>,
     mut broadcast_state_events: EventReader<BroadcastStateEvent>,
 ) {
     if broadcast_state_events.is_empty() {
@@ -645,30 +553,28 @@ fn broadcast_state(
 
     for _ in broadcast_state_events.read() {}
 
-    let players = players
+    players
         .iter()
-        .map(|(player, transform)| applesauce::Player {
-            id: player.id.clone(),
-            position: applesauce::Vec3::from(transform.translation).into(),
-            color: applesauce::Color::from(player.color).into(),
-            move_data: protobuf::MessageField(None), // TODO: We should see if the player is moving and send the correct state
-            special_fields: Default::default(),
-        })
-        .collect::<Vec<applesauce::Player>>();
-
-    let state = applesauce::State {
-        players,
-        ..Default::default()
-    };
-
-    server
-        .tx
-        .send(applesauce::Wrapper {
-            id: uuid::Uuid::new_v4().to_string(),
-            inner: Some(Inner::State(state)),
-            ..Default::default()
-        })
-        .unwrap();
+        .map(
+            |(player, transform, move_left, move_right)| applesauce::Player {
+                id: player.id.clone(),
+                position: applesauce::Vec3::from(transform.translation).into(),
+                color: applesauce::Color::from(player.color).into(),
+                move_data: applesauce::MoveData::from((move_left.is_some(), move_right.is_some()))
+                    .into(),
+                special_fields: Default::default(),
+            },
+        )
+        .for_each(|player| {
+            server
+                .tx
+                .send(applesauce::Wrapper {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    inner: Some(Inner::PlayerSync(player.clone())),
+                    ..Default::default()
+                })
+                .unwrap();
+        });
 }
 
 fn broadcast_i_am_out_of_sync(
