@@ -197,12 +197,24 @@ fn incoming_network_messages_to_events(
 ) {
     for input in connection.rx.try_iter() {
         match input.inner.unwrap() {
-            Inner::PlayerSpawn(player_spawn) => {
+            Inner::PlayerSync(e) => {
                 player_spawn_events.send(PlayerSyncEvent {
-                    player_id: player_spawn.id,
-                    position: player_spawn.position.unwrap().into(),
-                    color: player_spawn.color.unwrap().into(),
-                    move_data: None,
+                    player_id: e.id,
+                    position: e.position.unwrap().into(),
+                    color: e.color.unwrap().into(),
+                    move_data: match e.move_data.clone().unwrap().into() {
+                        None => None,
+                        Some(move_data) => Some(MoveData {
+                            direction: match move_data.direction.unwrap() {
+                                applesauce::Direction::LEFT => MoveDirection::Left,
+                                applesauce::Direction::RIGHT => MoveDirection::Right,
+                            },
+                            action: match move_data.action.unwrap() {
+                                applesauce::EventAction::START => MoveEventAction::Start,
+                                applesauce::EventAction::STOP => MoveEventAction::Stop,
+                            },
+                        }),
+                    },
                 });
             }
             Inner::State(state) => {
@@ -217,23 +229,6 @@ fn incoming_network_messages_to_events(
             }
             Inner::OutOfSync(_) => {
                 out_of_sync_events.send(BroadcastStateEvent);
-            }
-            Inner::Move(e) => {
-                player_spawn_events.send(PlayerSyncEvent {
-                    player_id: e.player_id.to_string(),
-                    position: e.position.clone().unwrap().into(),
-                    color: e.color.clone().unwrap().into(),
-                    move_data: Some(MoveData {
-                        direction: match e.direction.unwrap() {
-                            applesauce::Direction::LEFT => MoveDirection::Left,
-                            applesauce::Direction::RIGHT => MoveDirection::Right,
-                        },
-                        action: match e.action.unwrap() {
-                            applesauce::EventAction::START => MoveEventAction::Start,
-                            applesauce::EventAction::STOP => MoveEventAction::Stop,
-                        },
-                    }),
-                });
             }
             Inner::Fire(e) => {
                 fire_events.send(FireEvent {
@@ -618,18 +613,21 @@ fn send_move_event(
 ) -> Result<(), crossbeam_channel::SendError<applesauce::Wrapper>> {
     server.tx.send(applesauce::Wrapper {
         id: Uuid::new_v4().to_string(),
-        inner: Some(Inner::Move(applesauce::Move {
-            player_id,
-            direction: EnumOrUnknown::new(match direction {
-                MoveDirection::Left => applesauce::Direction::LEFT,
-                MoveDirection::Right => applesauce::Direction::RIGHT,
-            }),
-            action: EnumOrUnknown::new(match action {
-                MoveEventAction::Start => applesauce::EventAction::START,
-                MoveEventAction::Stop => applesauce::EventAction::STOP,
-            }),
+        inner: Some(Inner::PlayerSync(applesauce::Player {
+            id: player_id,
             position: applesauce::Vec3::from(position).into(),
             color: applesauce::Color::from(color).into(),
+            move_data: protobuf::MessageField(Some(Box::new(applesauce::MoveData {
+                direction: EnumOrUnknown::new(match direction {
+                    MoveDirection::Left => applesauce::Direction::LEFT,
+                    MoveDirection::Right => applesauce::Direction::RIGHT,
+                }),
+                action: EnumOrUnknown::new(match action {
+                    MoveEventAction::Start => applesauce::EventAction::START,
+                    MoveEventAction::Stop => applesauce::EventAction::STOP,
+                }),
+                special_fields: Default::default(),
+            }))),
             special_fields: Default::default(),
         })),
         ..Default::default()
@@ -653,6 +651,7 @@ fn broadcast_state(
             id: player.id.clone(),
             position: applesauce::Vec3::from(transform.translation).into(),
             color: applesauce::Color::from(player.color).into(),
+            move_data: protobuf::MessageField(None), // TODO: We should see if the player is moving and send the correct state
             special_fields: Default::default(),
         })
         .collect::<Vec<applesauce::Player>>();

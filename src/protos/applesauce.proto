@@ -4,12 +4,11 @@ message Wrapper {
   string id = 1;
 
   oneof inner {
-    Player player_spawn = 2;
+    Player player_sync = 2;
     State state = 3;
     OutOfSync out_of_sync = 4;
-    Move move = 5;
-    Fire fire = 6;
-    Block block = 7;
+    Fire fire = 5;
+    Block block = 6;
   }
 }
 
@@ -17,6 +16,12 @@ message Player {
   string id = 1;
   Vec3 position = 2;
   Color color = 3;
+  optional MoveData move_data = 4;
+}
+
+message MoveData {
+  Direction direction = 4;
+  EventAction action = 5;
 }
 
 message State {
@@ -43,14 +48,6 @@ message Color {
   float r = 1;
   float g = 2;
   float b = 3;
-}
-
-message Move {
-  string player_id = 1;
-  Direction direction = 2;
-  EventAction action = 3;
-  Vec3 position = 4;
-  Color color = 5;
 }
 
 message Fire {
