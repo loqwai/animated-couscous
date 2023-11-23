@@ -36,18 +36,16 @@ fn main() {
         }))
         .add_event::<BroadcastStateEvent>()
         .add_event::<IAmOutOfSyncEvent>()
-        .add_event::<PlayerSpawnEvent>()
-        .add_event::<MoveEvent>()
+        .add_event::<PlayerSyncEvent>()
         .add_event::<FireEvent>()
         .add_event::<BlockEvent>()
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
         .add_systems(Update, ensure_main_player)
-        .add_systems(Update, handle_player_move_event_start_stops)
         .add_systems(Update, move_moveables)
         .add_systems(Update, fire_bullets)
         .add_systems(Update, bullet_moves_forward_system)
-        .add_systems(Update, spawn_player)
+        .add_systems(Update, sync_players)
         .add_systems(Update, bullet_hit_despawns_player)
         .add_systems(Update, write_inputs_to_server)
         .add_systems(Update, incoming_network_messages_to_events)
@@ -131,9 +129,8 @@ enum MoveDirection {
     Right,
 }
 
-#[derive(Event)]
-struct MoveEvent {
-    player_id: String,
+#[derive(Clone, Copy)]
+struct MoveData {
     direction: MoveDirection,
     action: MoveEventAction,
 }
@@ -151,10 +148,11 @@ struct BlockEvent {
 }
 
 #[derive(Event)]
-struct PlayerSpawnEvent {
+struct PlayerSyncEvent {
     player_id: String,
     position: Vec3,
     color: Color,
+    move_data: Option<MoveData>,
 }
 
 #[derive(Event)]
@@ -192,27 +190,28 @@ fn start_local_server(mut commands: Commands) {
 
 fn incoming_network_messages_to_events(
     connection: ResMut<NetServer>,
-    mut player_spawn_events: EventWriter<PlayerSpawnEvent>,
+    mut player_spawn_events: EventWriter<PlayerSyncEvent>,
     mut out_of_sync_events: EventWriter<BroadcastStateEvent>,
-    mut move_events: EventWriter<MoveEvent>,
     mut fire_events: EventWriter<FireEvent>,
     mut block_events: EventWriter<BlockEvent>,
 ) {
     for input in connection.rx.try_iter() {
         match input.inner.unwrap() {
             Inner::PlayerSpawn(player_spawn) => {
-                player_spawn_events.send(PlayerSpawnEvent {
+                player_spawn_events.send(PlayerSyncEvent {
                     player_id: player_spawn.id,
                     position: player_spawn.position.unwrap().into(),
                     color: player_spawn.color.unwrap().into(),
+                    move_data: None,
                 });
             }
             Inner::State(state) => {
                 for player_spawn in state.players.iter() {
-                    player_spawn_events.send(PlayerSpawnEvent {
+                    player_spawn_events.send(PlayerSyncEvent {
                         player_id: player_spawn.id.clone(),
                         position: player_spawn.position.clone().unwrap().into(),
                         color: player_spawn.color.clone().unwrap().into(),
+                        move_data: None, // TODO: We should see if the player is moving and send the correct state
                     });
                 }
             }
@@ -220,21 +219,20 @@ fn incoming_network_messages_to_events(
                 out_of_sync_events.send(BroadcastStateEvent);
             }
             Inner::Move(e) => {
-                player_spawn_events.send(PlayerSpawnEvent {
+                player_spawn_events.send(PlayerSyncEvent {
                     player_id: e.player_id.to_string(),
                     position: e.position.clone().unwrap().into(),
                     color: e.color.clone().unwrap().into(),
-                });
-                move_events.send(MoveEvent {
-                    player_id: e.player_id.to_string(),
-                    direction: match e.direction.unwrap() {
-                        applesauce::Direction::LEFT => MoveDirection::Left,
-                        applesauce::Direction::RIGHT => MoveDirection::Right,
-                    },
-                    action: match e.action.unwrap() {
-                        applesauce::EventAction::START => MoveEventAction::Start,
-                        applesauce::EventAction::STOP => MoveEventAction::Stop,
-                    },
+                    move_data: Some(MoveData {
+                        direction: match e.direction.unwrap() {
+                            applesauce::Direction::LEFT => MoveDirection::Left,
+                            applesauce::Direction::RIGHT => MoveDirection::Right,
+                        },
+                        action: match e.action.unwrap() {
+                            applesauce::EventAction::START => MoveEventAction::Start,
+                            applesauce::EventAction::STOP => MoveEventAction::Stop,
+                        },
+                    }),
                 });
             }
             Inner::Fire(e) => {
@@ -267,39 +265,6 @@ fn despawn_things_that_need_despawning(
 ) {
     for entity in entities.iter() {
         commands.entity(entity).despawn_recursive();
-    }
-}
-
-fn handle_player_move_event_start_stops(
-    mut commands: Commands,
-    mut players: Query<(Entity, &Player)>,
-    mut move_events: EventReader<MoveEvent>,
-    mut out_of_sync_events: EventWriter<IAmOutOfSyncEvent>,
-) {
-    for event in move_events.read() {
-        let player = players
-            .iter_mut()
-            .find(|(_, player)| player.id == event.player_id);
-
-        match player {
-            None => out_of_sync_events.send(IAmOutOfSyncEvent),
-            Some((entity, _)) => {
-                match (event.action, event.direction) {
-                    (MoveEventAction::Start, MoveDirection::Left) => {
-                        commands.entity(entity).insert(MoveLeft)
-                    }
-                    (MoveEventAction::Stop, MoveDirection::Left) => {
-                        commands.entity(entity).remove::<MoveLeft>()
-                    }
-                    (MoveEventAction::Start, MoveDirection::Right) => {
-                        commands.entity(entity).insert(MoveRight)
-                    }
-                    (MoveEventAction::Stop, MoveDirection::Right) => {
-                        commands.entity(entity).remove::<MoveRight>()
-                    }
-                };
-            }
-        };
     }
 }
 
@@ -430,23 +395,24 @@ fn ensure_main_player(
     }
 }
 
-fn spawn_player(
+fn sync_players(
     mut commands: Commands,
-    mut events: EventReader<PlayerSpawnEvent>,
+    mut events: EventReader<PlayerSyncEvent>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut existing_players: Query<(&Player, &mut Transform)>,
+    mut existing_players: Query<(Entity, &Player, &mut Transform)>,
 ) {
     for event in events.read() {
-        match existing_players
+        let entity = match existing_players
             .iter_mut()
-            .find(|(p, _)| p.id == event.player_id)
+            .find(|(_, p, _)| p.id == event.player_id)
         {
-            Some((_, mut transform)) => {
+            Some((entity, _, mut transform)) => {
                 transform.translation = event.position;
+                entity
             }
-            None => {
-                commands.spawn(PlayerBundle {
+            None => commands
+                .spawn(PlayerBundle {
                     player: Player {
                         id: event.player_id.clone(),
                         color: event.color,
@@ -457,8 +423,25 @@ fn spawn_player(
                         transform: Transform::from_translation(event.position),
                         ..default()
                     },
-                });
-            }
+                })
+                .id(),
+        };
+
+        if let Some(move_event) = event.move_data.clone() {
+            match (move_event.action, move_event.direction) {
+                (MoveEventAction::Start, MoveDirection::Left) => {
+                    commands.entity(entity).insert(MoveLeft)
+                }
+                (MoveEventAction::Stop, MoveDirection::Left) => {
+                    commands.entity(entity).remove::<MoveLeft>()
+                }
+                (MoveEventAction::Start, MoveDirection::Right) => {
+                    commands.entity(entity).insert(MoveRight)
+                }
+                (MoveEventAction::Stop, MoveDirection::Right) => {
+                    commands.entity(entity).remove::<MoveRight>()
+                }
+            };
         }
     }
 }
