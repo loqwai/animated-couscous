@@ -203,32 +203,16 @@ fn incoming_network_messages_to_events(
             Inner::PlayerSpawn(player_spawn) => {
                 player_spawn_events.send(PlayerSpawnEvent {
                     player_id: player_spawn.id,
-                    position: Vec3::new(
-                        player_spawn.position.x,
-                        player_spawn.position.y,
-                        player_spawn.position.z,
-                    ),
-                    color: Color::rgb(
-                        player_spawn.color.r,
-                        player_spawn.color.g,
-                        player_spawn.color.b,
-                    ),
+                    position: player_spawn.position.unwrap().into(),
+                    color: player_spawn.color.unwrap().into(),
                 });
             }
             Inner::State(state) => {
                 for player_spawn in state.players.iter() {
                     player_spawn_events.send(PlayerSpawnEvent {
                         player_id: player_spawn.id.clone(),
-                        position: Vec3::new(
-                            player_spawn.position.x,
-                            player_spawn.position.y,
-                            player_spawn.position.z,
-                        ),
-                        color: Color::rgb(
-                            player_spawn.color.r,
-                            player_spawn.color.g,
-                            player_spawn.color.b,
-                        ),
+                        position: player_spawn.position.clone().unwrap().into(),
+                        color: player_spawn.color.clone().unwrap().into(),
                     });
                 }
             }
@@ -238,8 +222,8 @@ fn incoming_network_messages_to_events(
             Inner::Move(e) => {
                 player_spawn_events.send(PlayerSpawnEvent {
                     player_id: e.player_id.to_string(),
-                    position: Vec3::new(e.position.x, e.position.y, e.position.z),
-                    color: Color::rgb(e.color.r, e.color.g, e.color.b),
+                    position: e.position.clone().unwrap().into(),
+                    color: e.color.clone().unwrap().into(),
                 });
                 move_events.send(MoveEvent {
                     player_id: e.player_id.to_string(),
@@ -652,7 +636,7 @@ fn send_move_event(
     server.tx.send(applesauce::Wrapper {
         id: Uuid::new_v4().to_string(),
         inner: Some(Inner::Move(applesauce::Move {
-            player_id: player_id,
+            player_id,
             direction: EnumOrUnknown::new(match direction {
                 MoveDirection::Left => applesauce::Direction::LEFT,
                 MoveDirection::Right => applesauce::Direction::RIGHT,
@@ -661,18 +645,8 @@ fn send_move_event(
                 MoveEventAction::Start => applesauce::EventAction::START,
                 MoveEventAction::Stop => applesauce::EventAction::STOP,
             }),
-            position: protobuf::MessageField(Some(Box::new(applesauce::Vec3 {
-                x: position.x,
-                y: position.y,
-                z: position.z,
-                ..Default::default()
-            }))),
-            color: protobuf::MessageField(Some(Box::new(applesauce::Color {
-                r: color.r(),
-                g: color.g(),
-                b: color.b(),
-                ..Default::default()
-            }))),
+            position: applesauce::Vec3::from(position).into(),
+            color: applesauce::Color::from(color).into(),
             special_fields: Default::default(),
         })),
         ..Default::default()
@@ -694,19 +668,8 @@ fn broadcast_state(
         .iter()
         .map(|(player, transform)| applesauce::Player {
             id: player.id.clone(),
-            position: protobuf::MessageField(Some(Box::new(applesauce::Vec3 {
-                x: transform.translation.x,
-                y: transform.translation.y,
-                z: transform.translation.z,
-                special_fields: Default::default(),
-            }))),
-            color: protobuf::MessageField(Some(Box::new(applesauce::Color {
-                r: player.color.r(),
-                g: player.color.g(),
-                b: player.color.b(),
-                special_fields: Default::default(),
-            }))),
-
+            position: applesauce::Vec3::from(transform.translation).into(),
+            color: applesauce::Color::from(player.color).into(),
             special_fields: Default::default(),
         })
         .collect::<Vec<applesauce::Player>>();
