@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
+use bevy::utils::HashSet;
 use bevy::window::WindowPlugin;
 use bevy::window::{PrimaryWindow, WindowResolution};
 use crossbeam_channel::{Receiver, Sender};
@@ -14,7 +15,6 @@ use rand::prelude::*;
 use protos::generated::applesauce::{self};
 use uuid::Uuid;
 
-//
 fn main() {
     let window_offset: i32 = std::env::var("WINDOW_OFFSET")
         .unwrap_or("0".to_string())
@@ -38,6 +38,7 @@ fn main() {
         .add_event::<PlayerSyncEvent>()
         .add_event::<FireEvent>()
         .add_event::<BlockEvent>()
+        .add_event::<DespawnPlayerEvent>()
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
         .add_systems(Update, ensure_main_player)
@@ -53,6 +54,7 @@ fn main() {
         .add_systems(Update, activate_shield)
         .add_systems(Update, shield_blocks_bullets)
         .add_systems(Update, despawn_shield_on_ttl)
+        .add_systems(Update, despawn_player_on_despawn_player_event)
         .add_systems(PostUpdate, despawn_things_that_need_despawning)
         .run();
 }
@@ -116,6 +118,9 @@ struct NetServer {
     rx: Receiver<applesauce::Wrapper>,
 }
 
+#[derive(Resource)]
+struct DeadList(HashSet<String>);
+
 #[derive(Clone, Copy)]
 struct MoveData {
     moving_left: bool,
@@ -131,6 +136,11 @@ struct FireEvent {
 
 #[derive(Event)]
 struct BlockEvent {
+    player_id: String,
+}
+
+#[derive(Event)]
+struct DespawnPlayerEvent {
     player_id: String,
 }
 
@@ -153,6 +163,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
+    commands.insert_resource(DeadList(HashSet::new()));
     commands.spawn(Camera2dBundle::default());
 
     // Ground
@@ -181,6 +192,7 @@ fn incoming_network_messages_to_events(
     mut out_of_sync_events: EventWriter<BroadcastStateEvent>,
     mut fire_events: EventWriter<FireEvent>,
     mut block_events: EventWriter<BlockEvent>,
+    mut despawn_player_events: EventWriter<DespawnPlayerEvent>,
 ) {
     for input in connection.rx.try_iter() {
         match input.inner.unwrap() {
@@ -207,6 +219,11 @@ fn incoming_network_messages_to_events(
             }
             Inner::Block(e) => {
                 block_events.send(BlockEvent {
+                    player_id: e.player_id,
+                });
+            }
+            Inner::DespawnPlayer(e) => {
+                despawn_player_events.send(DespawnPlayerEvent {
                     player_id: e.player_id,
                 });
             }
@@ -364,8 +381,13 @@ fn sync_players(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut existing_players: Query<(Entity, &Player, &mut Transform)>,
+    dead_list: Res<DeadList>,
 ) {
     for event in events.read() {
+        if dead_list.0.contains(&event.player_id) {
+            continue;
+        }
+
         let entity = match existing_players
             .iter_mut()
             .find(|(_, p, _)| p.id == event.player_id)
@@ -404,13 +426,22 @@ fn sync_players(
 fn bullet_hit_despawns_player(
     mut commands: Commands,
     bullets: Query<(Entity, &Transform), With<Bullet>>,
-    mut players: Query<(Entity, &Transform), (With<Player>, Without<Shield>)>,
+    mut players: Query<(&Player, &Transform), (With<Player>, Without<Shield>)>,
+    server: ResMut<NetServer>,
 ) {
-    for (bullet, bloc) in bullets.iter() {
-        for (entity, player) in players.iter_mut() {
-            if bloc.translation.distance(player.translation) < 50. {
-                commands.entity(entity).insert(Despawn);
-                commands.entity(bullet).insert(Despawn);
+    for bullet in bullets.iter() {
+        for player in players.iter_mut() {
+            if bullet.1.translation.distance(player.1.translation) < 50. {
+                commands.entity(bullet.0).insert(Despawn);
+
+                server
+                    .tx
+                    .send(applesauce::Wrapper {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        inner: applesauce::DespawnPlayer::from(player.0.id.clone()).into(),
+                        special_fields: Default::default(),
+                    })
+                    .unwrap();
             }
         }
     }
@@ -438,6 +469,21 @@ fn despawn_shield_on_ttl(
     for (entity, mut shield) in shields.iter_mut() {
         shield.ttl.tick(time.delta());
         if shield.ttl.finished() {
+            commands.entity(entity).insert(Despawn);
+        }
+    }
+}
+
+fn despawn_player_on_despawn_player_event(
+    mut commands: Commands,
+    players: Query<(Entity, &Player)>,
+    mut despawn_player_events: EventReader<DespawnPlayerEvent>,
+    mut dead_list: ResMut<DeadList>,
+) {
+    for event in despawn_player_events.read() {
+        dead_list.0.insert(event.player_id.clone());
+
+        if let Some((entity, _)) = players.iter().find(|(_, p)| p.id == event.player_id) {
             commands.entity(entity).insert(Despawn);
         }
     }

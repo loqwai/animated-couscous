@@ -8,6 +8,7 @@ message Wrapper {
     OutOfSync out_of_sync = 3;
     Fire fire = 4;
     Block block = 5;
+    DespawnPlayer despawn_player = 6;
   }
 }
 
@@ -47,3 +48,7 @@ message Block {
 }
 
 message OutOfSync {}
+
+message DespawnPlayer {
+  string player_id = 1;
+}

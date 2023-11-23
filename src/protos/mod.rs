@@ -65,3 +65,18 @@ impl Into<protobuf::MessageField<generated::applesauce::MoveData>>
         protobuf::MessageField(Some(Box::new(self)))
     }
 }
+
+impl From<String> for generated::applesauce::DespawnPlayer {
+    fn from(player_id: String) -> Self {
+        Self {
+            player_id,
+            special_fields: Default::default(),
+        }
+    }
+}
+
+impl Into<Option<generated::applesauce::wrapper::Inner>> for generated::applesauce::DespawnPlayer {
+    fn into(self) -> Option<generated::applesauce::wrapper::Inner> {
+        Some(generated::applesauce::wrapper::Inner::DespawnPlayer(self))
+    }
+}
