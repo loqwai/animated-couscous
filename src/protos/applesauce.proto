@@ -38,10 +38,24 @@ enum EventAction {
   STOP = 1;
 }
 
+message Vec3 {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+message Color {
+  float r = 1;
+  float g = 2;
+  float b = 3;
+}
+
 message Move {
   string player_id = 1;
   Direction direction = 2;
   EventAction action = 3;
+  Vec3 position = 4;
+  Color color = 5;
 }
 
 message Fire {

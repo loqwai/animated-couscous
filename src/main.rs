@@ -66,7 +66,7 @@ struct Name(String);
 #[derive(Component)]
 struct Player {
     id: String,
-    color: Vec3,
+    color: Color,
 }
 
 #[derive(Component)]
@@ -154,7 +154,7 @@ struct BlockEvent {
 struct PlayerSpawnEvent {
     player_id: String,
     position: Vec3,
-    color: Vec3,
+    color: Color,
 }
 
 #[derive(Event)]
@@ -204,7 +204,7 @@ fn incoming_network_messages_to_events(
                 player_spawn_events.send(PlayerSpawnEvent {
                     player_id: player_spawn.id,
                     position: Vec3::new(player_spawn.x, player_spawn.y, player_spawn.z),
-                    color: Vec3::new(player_spawn.r, player_spawn.g, player_spawn.b),
+                    color: Color::rgb(player_spawn.r, player_spawn.g, player_spawn.b),
                 });
             }
             Inner::State(state) => {
@@ -212,7 +212,7 @@ fn incoming_network_messages_to_events(
                     player_spawn_events.send(PlayerSpawnEvent {
                         player_id: player_spawn.id.clone(),
                         position: Vec3::new(player_spawn.x, player_spawn.y, player_spawn.z),
-                        color: Vec3::new(player_spawn.r, player_spawn.g, player_spawn.b),
+                        color: Color::rgb(player_spawn.r, player_spawn.g, player_spawn.b),
                     });
                 }
             }
@@ -220,8 +220,13 @@ fn incoming_network_messages_to_events(
                 out_of_sync_events.send(BroadcastStateEvent);
             }
             Inner::Move(e) => {
+                player_spawn_events.send(PlayerSpawnEvent {
+                    player_id: e.player_id.to_string(),
+                    position: Vec3::new(e.position.x, e.position.y, e.position.z),
+                    color: Color::rgb(e.color.r, e.color.g, e.color.b),
+                });
                 move_events.send(MoveEvent {
-                    player_id: e.player_id,
+                    player_id: e.player_id.to_string(),
                     direction: match e.direction.unwrap() {
                         applesauce::Direction::LEFT => MoveDirection::Left,
                         applesauce::Direction::RIGHT => MoveDirection::Right,
@@ -410,7 +415,7 @@ fn ensure_main_player(
             player_bundle: PlayerBundle {
                 player: Player {
                     id,
-                    color: Vec3::new(r, g, b),
+                    color: Color::rgb(r, g, b),
                 },
                 mesh_bundle: MaterialMesh2dBundle {
                     mesh: meshes.add(shape::Circle::new(50.).into()).into(),
@@ -448,11 +453,7 @@ fn spawn_player(
                     },
                     mesh_bundle: MaterialMesh2dBundle {
                         mesh: meshes.add(shape::Circle::new(50.).into()).into(),
-                        material: materials.add(ColorMaterial::from(Color::rgb(
-                            event.color.x,
-                            event.color.y,
-                            event.color.z,
-                        ))),
+                        material: materials.add(ColorMaterial::from(event.color)),
                         transform: Transform::from_translation(event.position),
                         ..default()
                     },
@@ -508,7 +509,8 @@ fn write_inputs_to_server(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     mouse_button_input: Res<Input<MouseButton>>,
-    main_players: Query<(&Transform, &Player), With<MainPlayer>>,
+    main_players: Query<(&Transform, &Player, &Handle<ColorMaterial>), With<MainPlayer>>,
+    colors: Res<Assets<ColorMaterial>>,
     keyboard_input: Res<Input<KeyCode>>,
     server: Res<NetServer>,
 ) {
@@ -517,6 +519,7 @@ fn write_inputs_to_server(
         cameras,
         mouse_button_input,
         main_players,
+        colors,
         keyboard_input,
         server,
     );
@@ -526,7 +529,8 @@ fn write_inputs_to_server_fallible(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     mouse_button_input: Res<Input<MouseButton>>,
-    main_players: Query<(&Transform, &Player), With<MainPlayer>>,
+    main_players: Query<(&Transform, &Player, &Handle<ColorMaterial>), With<MainPlayer>>,
+    colors: Res<Assets<ColorMaterial>>,
     keyboard_input: Res<Input<KeyCode>>,
     server: Res<NetServer>,
 ) -> Option<()> {
@@ -539,7 +543,8 @@ fn write_inputs_to_server_fallible(
         .unwrap()
         .origin;
 
-    let (player_transform, player) = main_players.get_single().ok()?;
+    let (player_transform, player, color_handle) = main_players.get_single().ok()?;
+    let color = colors.get(color_handle).unwrap().color;
 
     if keyboard_input.just_pressed(KeyCode::A) {
         send_move_event(
@@ -547,6 +552,8 @@ fn write_inputs_to_server_fallible(
             player.id.clone(),
             MoveEventAction::Start,
             MoveDirection::Left,
+            player_transform.translation,
+            color,
         )
         .unwrap();
     }
@@ -556,6 +563,8 @@ fn write_inputs_to_server_fallible(
             player.id.clone(),
             MoveEventAction::Stop,
             MoveDirection::Left,
+            player_transform.translation,
+            color,
         )
         .unwrap();
     }
@@ -565,6 +574,8 @@ fn write_inputs_to_server_fallible(
             player.id.clone(),
             MoveEventAction::Start,
             MoveDirection::Right,
+            player_transform.translation,
+            color,
         )
         .unwrap();
     }
@@ -574,6 +585,8 @@ fn write_inputs_to_server_fallible(
             player.id.clone(),
             MoveEventAction::Stop,
             MoveDirection::Right,
+            player_transform.translation,
+            color,
         )
         .unwrap();
     }
@@ -617,6 +630,8 @@ fn send_move_event(
     player_id: String,
     action: MoveEventAction,
     direction: MoveDirection,
+    position: Vec3,
+    color: Color,
 ) -> Result<(), crossbeam_channel::SendError<applesauce::Wrapper>> {
     server.tx.send(applesauce::Wrapper {
         id: Uuid::new_v4().to_string(),
@@ -630,7 +645,19 @@ fn send_move_event(
                 MoveEventAction::Start => applesauce::EventAction::START,
                 MoveEventAction::Stop => applesauce::EventAction::STOP,
             }),
-            ..Default::default()
+            position: protobuf::MessageField(Some(Box::new(applesauce::Vec3 {
+                x: position.x,
+                y: position.y,
+                z: position.z,
+                ..Default::default()
+            }))),
+            color: protobuf::MessageField(Some(Box::new(applesauce::Color {
+                r: color.r(),
+                g: color.g(),
+                b: color.b(),
+                ..Default::default()
+            }))),
+            special_fields: Default::default(),
         })),
         ..Default::default()
     })
@@ -654,9 +681,9 @@ fn broadcast_state(
             x: transform.translation.x,
             y: transform.translation.y,
             z: transform.translation.z,
-            r: player.color.x,
-            g: player.color.y,
-            b: player.color.z,
+            r: player.color.r(),
+            g: player.color.g(),
+            b: player.color.b(),
 
             ..Default::default()
         })
