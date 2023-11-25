@@ -36,25 +36,44 @@ fn main() {
         .add_event::<BroadcastStateEvent>()
         .add_event::<IAmOutOfSyncEvent>()
         .add_event::<PlayerSyncEvent>()
-        .add_event::<FireEvent>()
         .add_event::<BlockEvent>()
         .add_event::<DespawnPlayerEvent>()
+        .add_event::<BulletSyncEvent>()
         .add_systems(Startup, setup)
         .add_systems(Startup, start_local_server)
-        .add_systems(Update, ensure_main_player)
-        .add_systems(Update, move_moveables)
-        .add_systems(Update, fire_bullets)
-        .add_systems(Update, bullet_moves_forward_system)
-        .add_systems(Update, sync_players)
-        .add_systems(Update, bullet_hit_despawns_player)
-        .add_systems(Update, write_inputs_to_server)
-        .add_systems(Update, incoming_network_messages_to_events)
-        .add_systems(Update, broadcast_state)
-        .add_systems(Update, broadcast_i_am_out_of_sync)
-        .add_systems(Update, activate_shield)
-        .add_systems(Update, shield_blocks_bullets)
-        .add_systems(Update, despawn_shield_on_ttl)
-        .add_systems(Update, despawn_player_on_despawn_player_event)
+        // Update state from network events
+        .add_systems(
+            Update,
+            (
+                read_network_messages_to_events,
+                sync_bullets,
+                sync_players,
+                activate_shield_on_block_event,
+                despawn_player_on_despawn_player_event,
+            ),
+        )
+        // Calculate next game state
+        .add_systems(
+            Update,
+            (
+                bullet_hit_despawns_player_and_bullet,
+                bullet_moves_forward_system,
+                despawn_shield_on_ttl,
+                ensure_main_player,
+                move_moveables,
+                shield_blocks_bullets,
+            ),
+        )
+        // Write new state to network
+        .add_systems(
+            Update,
+            (
+                write_inputs_to_network,
+                write_mouse_clicks_as_bullets_to_network,
+                write_i_am_out_of_sync_events_to_network,
+                write_state_to_network,
+            ),
+        )
         .add_systems(PostUpdate, despawn_things_that_need_despawning)
         .run();
 }
@@ -90,7 +109,10 @@ struct MoveLeft;
 struct MoveRight;
 
 #[derive(Component)]
-struct Bullet;
+struct Bullet {
+    id: String,
+    velocity: Vec3,
+}
 
 #[derive(Component)]
 struct Shield {
@@ -128,13 +150,6 @@ struct MoveData {
 }
 
 #[derive(Event)]
-struct FireEvent {
-    player_id: String,
-    aim_x: f32,
-    aim_y: f32,
-}
-
-#[derive(Event)]
 struct BlockEvent {
     player_id: String,
 }
@@ -142,6 +157,13 @@ struct BlockEvent {
 #[derive(Event)]
 struct DespawnPlayerEvent {
     player_id: String,
+}
+
+#[derive(Event)]
+struct BulletSyncEvent {
+    id: String,
+    position: Vec3,
+    velocity: Vec3,
 }
 
 #[derive(Event)]
@@ -186,13 +208,13 @@ fn start_local_server(mut commands: Commands) {
     commands.insert_resource(NetServer { tx, rx });
 }
 
-fn incoming_network_messages_to_events(
+fn read_network_messages_to_events(
     connection: ResMut<NetServer>,
     mut player_spawn_events: EventWriter<PlayerSyncEvent>,
     mut out_of_sync_events: EventWriter<BroadcastStateEvent>,
-    mut fire_events: EventWriter<FireEvent>,
     mut block_events: EventWriter<BlockEvent>,
     mut despawn_player_events: EventWriter<DespawnPlayerEvent>,
+    mut bullet_sync_events: EventWriter<BulletSyncEvent>,
 ) {
     for input in connection.rx.try_iter() {
         match input.inner.unwrap() {
@@ -210,13 +232,6 @@ fn incoming_network_messages_to_events(
             Inner::OutOfSync(_) => {
                 out_of_sync_events.send(BroadcastStateEvent);
             }
-            Inner::Fire(e) => {
-                fire_events.send(FireEvent {
-                    player_id: e.player_id,
-                    aim_x: e.aim_x,
-                    aim_y: e.aim_y,
-                });
-            }
             Inner::Block(e) => {
                 block_events.send(BlockEvent {
                     player_id: e.player_id,
@@ -227,15 +242,20 @@ fn incoming_network_messages_to_events(
                     player_id: e.player_id,
                 });
             }
+            Inner::Bullet(e) => {
+                bullet_sync_events.send(BulletSyncEvent {
+                    id: e.id,
+                    position: e.position.unwrap().into(),
+                    velocity: e.velocity.unwrap().into(),
+                });
+            }
         }
     }
 }
 
-fn bullet_moves_forward_system(mut bullets: Query<&mut Transform, With<Bullet>>) {
-    for mut bullet in bullets.iter_mut() {
-        // move bullet forward, taking it's rotation into account
-        let rotation = bullet.rotation * Vec3::X * 10.;
-        bullet.translation += rotation;
+fn bullet_moves_forward_system(mut bullets: Query<(&Bullet, &mut Transform)>) {
+    for (bullet, mut transform) in bullets.iter_mut() {
+        transform.translation += bullet.velocity;
     }
 }
 
@@ -261,50 +281,46 @@ fn move_moveables(
     }
 }
 
-fn fire_bullets(
+fn sync_bullets(
     mut commands: Commands,
+    mut events: EventReader<BulletSyncEvent>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut events: EventReader<FireEvent>,
-    mut out_of_sync_events: EventWriter<IAmOutOfSyncEvent>,
-    players: Query<(&Player, &Transform)>,
+    mut bullets: Query<(&Bullet, &mut Transform)>,
 ) {
     for event in events.read() {
-        match players.iter().find(|(p, _)| p.id == event.player_id) {
-            Some((_, transform)) => {
-                let ray = Vec3::new(event.aim_x, event.aim_y, 0.);
-                let rotation = Quat::from_rotation_z(ray.y.atan2(ray.x));
-                let mut transform = transform.clone().with_rotation(rotation);
+        let rotation = Quat::from_rotation_z(event.velocity.y.atan2(event.velocity.x));
 
-                // offset the bullet so they don't shoot themselves
-                let player_radius = 50.;
-                let bullet_half_length = 20.;
-                let fudge_factor = 1.;
-                transform.translation += ray
-                    .normalize()
-                    .clamp_length_min(player_radius + bullet_half_length + fudge_factor);
-                transform.translation.z = 0.1;
-
+        match bullets.iter_mut().find(|(b, _)| b.id == event.id) {
+            Some((_, mut transform)) => {
+                transform.translation = event.position;
+                transform.rotation = rotation;
+            }
+            None => {
                 commands.spawn(BulletBundle {
-                    bullet: Bullet,
+                    bullet: Bullet {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        velocity: event.velocity,
+                    },
                     mesh_bundle: MaterialMesh2dBundle {
                         mesh: meshes
                             .add(shape::Quad::new(Vec2::new(40., 10.)).into())
                             .into(),
                         material: materials.add(ColorMaterial::from(Color::WHITE)),
-                        transform,
+                        transform: Transform {
+                            translation: event.position,
+                            rotation,
+                            ..default()
+                        },
                         ..default()
                     },
                 });
             }
-            None => {
-                out_of_sync_events.send(IAmOutOfSyncEvent);
-            }
-        };
+        }
     }
 }
 
-fn activate_shield(
+fn activate_shield_on_block_event(
     mut commands: Commands,
     mut block_events: EventReader<BlockEvent>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -423,7 +439,7 @@ fn sync_players(
     }
 }
 
-fn bullet_hit_despawns_player(
+fn bullet_hit_despawns_player_and_bullet(
     mut commands: Commands,
     bullets: Query<(Entity, &Transform), With<Bullet>>,
     mut players: Query<(&Player, &Transform), (With<Player>, Without<Shield>)>,
@@ -489,9 +505,8 @@ fn despawn_player_on_despawn_player_event(
     }
 }
 
-fn write_inputs_to_server(
+fn write_inputs_to_network(
     windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
     mouse_button_input: Res<Input<MouseButton>>,
     main_players: Query<(&Transform, &Player, &Handle<ColorMaterial>), With<MainPlayer>>,
     colors: Res<Assets<ColorMaterial>>,
@@ -500,7 +515,6 @@ fn write_inputs_to_server(
 ) {
     write_inputs_to_server_fallible(
         windows,
-        cameras,
         mouse_button_input,
         main_players,
         colors,
@@ -511,7 +525,6 @@ fn write_inputs_to_server(
 
 fn write_inputs_to_server_fallible(
     windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
     mouse_button_input: Res<Input<MouseButton>>,
     main_players: Query<(&Transform, &Player, &Handle<ColorMaterial>), With<MainPlayer>>,
     colors: Res<Assets<ColorMaterial>>,
@@ -519,13 +532,6 @@ fn write_inputs_to_server_fallible(
     server: Res<NetServer>,
 ) -> Option<()> {
     windows.get_single().unwrap().cursor_position()?;
-
-    let (camera, camera_transform) = cameras.get_single().unwrap();
-    let cursor = windows.get_single().unwrap().cursor_position().unwrap();
-    let cursor_position = camera
-        .viewport_to_world(camera_transform, cursor)
-        .unwrap()
-        .origin;
 
     let (player_transform, player, color_handle) = main_players.get_single().ok()?;
     let color = colors.get(color_handle).unwrap().color;
@@ -554,23 +560,6 @@ fn write_inputs_to_server_fallible(
             .unwrap();
     }
 
-    if mouse_button_input.just_pressed(MouseButton::Left) {
-        let aim_vector = cursor_position - player_transform.translation;
-        server
-            .tx
-            .send(applesauce::Wrapper {
-                id: Uuid::new_v4().to_string(),
-                inner: Some(Inner::Fire(applesauce::Fire {
-                    player_id: player.id.clone(),
-                    aim_x: aim_vector.x,
-                    aim_y: aim_vector.y,
-                    ..Default::default()
-                })),
-                ..Default::default()
-            })
-            .unwrap();
-    }
-
     if mouse_button_input.just_pressed(MouseButton::Right) {
         server
             .tx
@@ -588,7 +577,75 @@ fn write_inputs_to_server_fallible(
     Some(())
 }
 
-fn broadcast_state(
+fn write_mouse_clicks_as_bullets_to_network(
+    mouse_button_input: Res<Input<MouseButton>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    main_players: Query<(&Player, &Transform), With<MainPlayer>>,
+    server: Res<NetServer>,
+) {
+    write_mouse_clicks_as_bullets_to_network_fallible(
+        mouse_button_input,
+        windows,
+        cameras,
+        main_players,
+        server,
+    );
+}
+
+fn write_mouse_clicks_as_bullets_to_network_fallible(
+    mouse_button_input: Res<Input<MouseButton>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    main_players: Query<(&Player, &Transform), With<MainPlayer>>,
+    server: Res<NetServer>,
+) -> Option<()> {
+    if !mouse_button_input.just_pressed(MouseButton::Left) {
+        return None;
+    };
+    let player = main_players.get_single().ok()?;
+
+    let cursor_position = windows.get_single().unwrap().cursor_position()?;
+    let (camera, camera_transform) = cameras.get_single().unwrap();
+    let relative_cursor_position = camera
+        .viewport_to_world(camera_transform, cursor_position)
+        .unwrap()
+        .origin;
+    let aim = (relative_cursor_position - player.1.translation)
+        .normalize()
+        .xy();
+
+    let rotation = Quat::from_rotation_z(aim.y.atan2(aim.x));
+    let mut transform = player.1.clone().with_rotation(rotation);
+
+    // offset the bullet so they don't shoot themselves
+    let player_radius = 50.;
+    let bullet_half_length = 20.;
+    let fudge_factor = 1.;
+    let offset = player_radius + bullet_half_length + fudge_factor;
+    let bullet_position = transform.translation.xy() + aim.clamp_length_min(offset);
+
+    transform.translation = Vec3::new(bullet_position.x, bullet_position.y, 0.1);
+
+    server
+        .tx
+        .send(applesauce::Wrapper {
+            id: uuid::Uuid::new_v4().to_string(),
+            inner: applesauce::Bullet {
+                id: uuid::Uuid::new_v4().to_string(),
+                position: applesauce::Vec3::from(transform.translation).into(),
+                velocity: applesauce::Vec3::from(aim * 10.).into(),
+                special_fields: Default::default(),
+            }
+            .into(),
+            special_fields: Default::default(),
+        })
+        .unwrap();
+
+    Some(())
+}
+
+fn write_state_to_network(
     server: ResMut<NetServer>,
     players: Query<(&Player, &Transform, Option<&MoveLeft>, Option<&MoveRight>)>,
     mut broadcast_state_events: EventReader<BroadcastStateEvent>,
@@ -623,7 +680,7 @@ fn broadcast_state(
         });
 }
 
-fn broadcast_i_am_out_of_sync(
+fn write_i_am_out_of_sync_events_to_network(
     server: ResMut<NetServer>,
     mut out_of_sync_events: EventReader<IAmOutOfSyncEvent>,
 ) {

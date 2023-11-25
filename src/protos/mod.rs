@@ -13,6 +13,17 @@ impl From<bevy::prelude::Vec3> for generated::applesauce::Vec3 {
     }
 }
 
+impl From<bevy::prelude::Vec2> for generated::applesauce::Vec3 {
+    fn from(v: bevy::prelude::Vec2) -> Self {
+        Self {
+            x: v.x,
+            y: v.y,
+            z: 0.,
+            special_fields: Default::default(),
+        }
+    }
+}
+
 impl Into<bevy::prelude::Vec3> for generated::applesauce::Vec3 {
     fn into(self) -> bevy::prelude::Vec3 {
         bevy::prelude::Vec3::new(self.x, self.y, self.z)
@@ -78,5 +89,11 @@ impl From<String> for generated::applesauce::DespawnPlayer {
 impl Into<Option<generated::applesauce::wrapper::Inner>> for generated::applesauce::DespawnPlayer {
     fn into(self) -> Option<generated::applesauce::wrapper::Inner> {
         Some(generated::applesauce::wrapper::Inner::DespawnPlayer(self))
+    }
+}
+
+impl Into<Option<generated::applesauce::wrapper::Inner>> for generated::applesauce::Bullet {
+    fn into(self) -> Option<generated::applesauce::wrapper::Inner> {
+        Some(generated::applesauce::wrapper::Inner::Bullet(self))
     }
 }

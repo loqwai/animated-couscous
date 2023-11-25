@@ -6,7 +6,7 @@ message Wrapper {
   oneof inner {
     Player player_sync = 2;
     OutOfSync out_of_sync = 3;
-    Fire fire = 4;
+    Bullet bullet = 4;
     Block block = 5;
     DespawnPlayer despawn_player = 6;
   }
@@ -36,13 +36,6 @@ message Color {
   float b = 3;
 }
 
-message Fire {
-  string player_id = 1;
-
-  float aim_x = 2;
-  float aim_y = 3;
-}
-
 message Block {
   string player_id = 1;
 }
@@ -51,4 +44,10 @@ message OutOfSync {}
 
 message DespawnPlayer {
   string player_id = 1;
+}
+
+message Bullet {
+  string id = 1;
+  Vec3 position = 2;
+  Vec3 velocity = 3;
 }
