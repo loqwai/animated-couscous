@@ -15,6 +15,9 @@ use rand::prelude::*;
 use protos::generated::applesauce::{self};
 use uuid::Uuid;
 
+const BULLET_SPEED: f32 = 10.;
+const FIRE_TIMEOUT: u64 = 100;
+
 fn main() {
     let window_offset: i32 = std::env::var("WINDOW_OFFSET")
         .unwrap_or("0".to_string())
@@ -46,10 +49,11 @@ fn main() {
             Update,
             (
                 read_network_messages_to_events,
-                sync_bullets,
-                sync_players,
-                activate_shield_on_block_event,
-                despawn_player_on_despawn_player_event,
+                handle_bullet_sync_events,
+                handle_player_sync_events,
+                handle_block_events,
+                handle_despawn_player_events,
+                handle_broadcast_state_event,
             ),
         )
         // Calculate next game state
@@ -64,6 +68,8 @@ fn main() {
                 shield_blocks_bullets,
             ),
         )
+        // AI?
+        .add_systems(Update, auto_fire)
         // Write new state to network
         .add_systems(
             Update,
@@ -71,7 +77,6 @@ fn main() {
                 write_inputs_to_network,
                 write_mouse_clicks_as_bullets_to_network,
                 write_i_am_out_of_sync_events_to_network,
-                write_state_to_network,
             ),
         )
         .add_systems(PostUpdate, despawn_things_that_need_despawning)
@@ -85,6 +90,7 @@ struct Name(String);
 struct Player {
     id: String,
     color: Color,
+    fire_timeout: Timer,
 }
 
 #[derive(Component)]
@@ -208,10 +214,38 @@ fn start_local_server(mut commands: Commands) {
     commands.insert_resource(NetServer { tx, rx });
 }
 
+// fn debug_events(
+//     mut broadcast_state_events: EventReader<BroadcastStateEvent>,
+//     mut i_am_out_of_sync_events: EventReader<IAmOutOfSyncEvent>,
+//     mut player_sync_events: EventReader<PlayerSyncEvent>,
+//     mut block_events: EventReader<BlockEvent>,
+//     mut despawn_player_events: EventReader<DespawnPlayerEvent>,
+//     mut bullet_sync_events: EventReader<BulletSyncEvent>,
+// ) {
+//     for _ in broadcast_state_events.read() {
+//         println!("broadcast_state_event");
+//     }
+//     for _ in i_am_out_of_sync_events.read() {
+//         println!("i_am_out_of_sync_event");
+//     }
+//     for _ in player_sync_events.read() {
+//         println!("player_sync_event");
+//     }
+//     for _ in block_events.read() {
+//         println!("block_event");
+//     }
+//     for _ in despawn_player_events.read() {
+//         println!("despawn_player_event");
+//     }
+//     for _ in bullet_sync_events.read() {
+//         println!("bullet_sync_event");
+//     }
+// }
+
 fn read_network_messages_to_events(
     connection: ResMut<NetServer>,
     mut player_spawn_events: EventWriter<PlayerSyncEvent>,
-    mut out_of_sync_events: EventWriter<BroadcastStateEvent>,
+    mut broadcast_state_events: EventWriter<BroadcastStateEvent>,
     mut block_events: EventWriter<BlockEvent>,
     mut despawn_player_events: EventWriter<DespawnPlayerEvent>,
     mut bullet_sync_events: EventWriter<BulletSyncEvent>,
@@ -230,7 +264,7 @@ fn read_network_messages_to_events(
                 });
             }
             Inner::OutOfSync(_) => {
-                out_of_sync_events.send(BroadcastStateEvent);
+                broadcast_state_events.send(BroadcastStateEvent);
             }
             Inner::Block(e) => {
                 block_events.send(BlockEvent {
@@ -268,6 +302,63 @@ fn despawn_things_that_need_despawning(
     }
 }
 
+fn auto_fire(
+    mut main_players: Query<(&mut Player, &Transform), With<MainPlayer>>,
+    server: Res<NetServer>,
+    time: Res<Time>,
+) {
+    let player = main_players.get_single_mut().ok();
+    if player.is_none() {
+        return;
+    }
+    let mut player = player.unwrap();
+    player.0.fire_timeout.tick(time.delta());
+
+    if !player.0.fire_timeout.finished() {
+        return;
+    }
+
+    let bullet_position = player.1.translation.xy() + Vec2::new(71.0, 0.);
+    let rotation = Quat::from_rotation_z(std::f32::consts::PI);
+    let mut transform = player.1.clone().with_rotation(rotation);
+    transform.translation = Vec3::new(bullet_position.x, bullet_position.y, 0.1);
+
+    server
+        .tx
+        .send(applesauce::Wrapper {
+            id: uuid::Uuid::new_v4().to_string(),
+            inner: applesauce::Bullet {
+                id: uuid::Uuid::new_v4().to_string(),
+                position: applesauce::Vec3::from(transform.translation).into(),
+                velocity: applesauce::Vec3::from(Vec2::new(1., 0.) * BULLET_SPEED).into(),
+                special_fields: Default::default(),
+            }
+            .into(),
+            special_fields: Default::default(),
+        })
+        .unwrap();
+
+    let bullet_position = player.1.translation.xy() + Vec2::new(-71.0, 0.);
+    let rotation = Quat::from_rotation_z(std::f32::consts::PI * -1.);
+    let mut transform = player.1.clone().with_rotation(rotation);
+    transform.translation = Vec3::new(bullet_position.x, bullet_position.y, 0.1);
+
+    server
+        .tx
+        .send(applesauce::Wrapper {
+            id: uuid::Uuid::new_v4().to_string(),
+            inner: applesauce::Bullet {
+                id: uuid::Uuid::new_v4().to_string(),
+                position: applesauce::Vec3::from(transform.translation).into(),
+                velocity: applesauce::Vec3::from(Vec2::new(-1., 0.) * BULLET_SPEED).into(),
+                special_fields: Default::default(),
+            }
+            .into(),
+            special_fields: Default::default(),
+        })
+        .unwrap();
+}
+
 fn move_moveables(
     mut left_movers: Query<&mut Transform, (With<MoveLeft>, Without<MoveRight>)>,
     mut right_movers: Query<&mut Transform, (With<MoveRight>, Without<MoveLeft>)>,
@@ -281,14 +372,19 @@ fn move_moveables(
     }
 }
 
-fn sync_bullets(
+fn handle_bullet_sync_events(
     mut commands: Commands,
     mut events: EventReader<BulletSyncEvent>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut bullets: Query<(&Bullet, &mut Transform)>,
+    dead_list: Res<DeadList>,
 ) {
     for event in events.read() {
+        if dead_list.0.contains(&event.id) {
+            continue;
+        }
+
         let rotation = Quat::from_rotation_z(event.velocity.y.atan2(event.velocity.x));
 
         match bullets.iter_mut().find(|(b, _)| b.id == event.id) {
@@ -316,11 +412,11 @@ fn sync_bullets(
                     },
                 });
             }
-        }
+        };
     }
 }
 
-fn activate_shield_on_block_event(
+fn handle_block_events(
     mut commands: Commands,
     mut block_events: EventReader<BlockEvent>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -357,7 +453,7 @@ fn ensure_main_player(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     main_players: Query<Entity, With<MainPlayer>>,
-    mut broadcast_state_events: EventWriter<BroadcastStateEvent>,
+    server: Res<NetServer>,
 ) {
     if main_players.iter().count() == 0 {
         let id = uuid::Uuid::new_v4().to_string();
@@ -375,8 +471,12 @@ fn ensure_main_player(
             main_player: MainPlayer,
             player_bundle: PlayerBundle {
                 player: Player {
-                    id,
+                    id: id.clone(),
                     color: Color::rgb(r, g, b),
+                    fire_timeout: Timer::new(
+                        Duration::from_millis(FIRE_TIMEOUT),
+                        TimerMode::Repeating,
+                    ),
                 },
                 mesh_bundle: MaterialMesh2dBundle {
                     mesh: meshes.add(shape::Circle::new(50.).into()).into(),
@@ -387,11 +487,24 @@ fn ensure_main_player(
             },
         });
 
-        broadcast_state_events.send(BroadcastStateEvent);
+        server
+            .tx
+            .send(applesauce::Wrapper {
+                id: uuid::Uuid::new_v4().to_string(),
+                inner: Some(Inner::PlayerSync(applesauce::Player {
+                    id: id.clone(),
+                    position: applesauce::Vec3::from(Vec3::new(x, 50., z)).into(),
+                    color: applesauce::Color::from(Color::rgb(r, g, b)).into(),
+                    move_data: applesauce::MoveData::from((false, false)).into(),
+                    special_fields: Default::default(),
+                })),
+                ..Default::default()
+            })
+            .unwrap();
     }
 }
 
-fn sync_players(
+fn handle_player_sync_events(
     mut commands: Commands,
     mut events: EventReader<PlayerSyncEvent>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -417,6 +530,10 @@ fn sync_players(
                     player: Player {
                         id: event.player_id.clone(),
                         color: event.color,
+                        fire_timeout: Timer::new(
+                            Duration::from_millis(FIRE_TIMEOUT),
+                            TimerMode::Repeating,
+                        ),
                     },
                     mesh_bundle: MaterialMesh2dBundle {
                         mesh: meshes.add(shape::Circle::new(50.).into()).into(),
@@ -441,14 +558,16 @@ fn sync_players(
 
 fn bullet_hit_despawns_player_and_bullet(
     mut commands: Commands,
-    bullets: Query<(Entity, &Transform), With<Bullet>>,
+    bullets: Query<(Entity, &Transform, &Bullet), With<Bullet>>,
     mut players: Query<(&Player, &Transform), (With<Player>, Without<Shield>)>,
     server: ResMut<NetServer>,
+    mut dead_list: ResMut<DeadList>,
 ) {
     for bullet in bullets.iter() {
         for player in players.iter_mut() {
             if bullet.1.translation.distance(player.1.translation) < 50. {
                 commands.entity(bullet.0).insert(Despawn);
+                dead_list.0.insert(bullet.2.id.clone());
 
                 server
                     .tx
@@ -490,7 +609,7 @@ fn despawn_shield_on_ttl(
     }
 }
 
-fn despawn_player_on_despawn_player_event(
+fn handle_despawn_player_events(
     mut commands: Commands,
     players: Query<(Entity, &Player)>,
     mut despawn_player_events: EventReader<DespawnPlayerEvent>,
@@ -634,7 +753,7 @@ fn write_mouse_clicks_as_bullets_to_network_fallible(
             inner: applesauce::Bullet {
                 id: uuid::Uuid::new_v4().to_string(),
                 position: applesauce::Vec3::from(transform.translation).into(),
-                velocity: applesauce::Vec3::from(aim * 10.).into(),
+                velocity: applesauce::Vec3::from(aim.normalize() * BULLET_SPEED).into(),
                 special_fields: Default::default(),
             }
             .into(),
@@ -645,39 +764,57 @@ fn write_mouse_clicks_as_bullets_to_network_fallible(
     Some(())
 }
 
-fn write_state_to_network(
+fn handle_broadcast_state_event(
     server: ResMut<NetServer>,
     players: Query<(&Player, &Transform, Option<&MoveLeft>, Option<&MoveRight>)>,
+    bullets: Query<(&Bullet, &Transform)>,
     mut broadcast_state_events: EventReader<BroadcastStateEvent>,
 ) {
     if broadcast_state_events.is_empty() {
         return;
     }
 
-    for _ in broadcast_state_events.read() {}
+    broadcast_state_events.clear();
 
     players
         .iter()
-        .map(
-            |(player, transform, move_left, move_right)| applesauce::Player {
-                id: player.id.clone(),
-                position: applesauce::Vec3::from(transform.translation).into(),
-                color: applesauce::Color::from(player.color).into(),
-                move_data: applesauce::MoveData::from((move_left.is_some(), move_right.is_some()))
-                    .into(),
-                special_fields: Default::default(),
-            },
-        )
-        .for_each(|player| {
+        .for_each(|(player, transform, move_left, move_right)| {
             server
                 .tx
                 .send(applesauce::Wrapper {
                     id: uuid::Uuid::new_v4().to_string(),
-                    inner: Some(Inner::PlayerSync(player.clone())),
+                    inner: Some(Inner::PlayerSync(applesauce::Player {
+                        id: player.id.clone(),
+                        position: applesauce::Vec3::from(transform.translation).into(),
+                        color: applesauce::Color::from(player.color).into(),
+                        move_data: applesauce::MoveData::from((
+                            move_left.is_some(),
+                            move_right.is_some(),
+                        ))
+                        .into(),
+                        special_fields: Default::default(),
+                    })),
                     ..Default::default()
                 })
                 .unwrap();
         });
+
+    /* uncommenting the follow code causes the app to hang occasionally */
+    bullets.iter().for_each(|(bullet, transform)| {
+        server
+            .tx
+            .send(applesauce::Wrapper {
+                id: uuid::Uuid::new_v4().to_string(),
+                inner: Some(Inner::Bullet(applesauce::Bullet {
+                    id: bullet.id.clone(),
+                    position: applesauce::Vec3::from(transform.translation).into(),
+                    velocity: applesauce::Vec3::from(bullet.velocity).into(),
+                    special_fields: Default::default(),
+                })),
+                ..Default::default()
+            })
+            .unwrap();
+    });
 }
 
 fn write_i_am_out_of_sync_events_to_network(

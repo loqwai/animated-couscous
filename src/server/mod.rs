@@ -24,9 +24,9 @@ pub(crate) fn serve(
     let connect_addr = connect_addr.to_string();
     let listener = TcpListener::bind(listen_addr).unwrap();
 
-    let (tx, rx) = crossbeam_channel::bounded::<Event>(10);
-    let (tx_input, rx_input) = crossbeam_channel::bounded::<applesauce::Wrapper>(10);
-    let (tx_output, rx_output) = crossbeam_channel::bounded::<applesauce::Wrapper>(10);
+    let (tx, rx) = crossbeam_channel::unbounded::<Event>();
+    let (tx_input, rx_input) = crossbeam_channel::unbounded::<applesauce::Wrapper>();
+    let (tx_output, rx_output) = crossbeam_channel::unbounded::<applesauce::Wrapper>();
 
     let tx2 = tx.clone();
     let rx2 = rx.clone();
@@ -55,16 +55,16 @@ pub(crate) fn serve(
         for event in rx2.iter() {
             match event {
                 Event::Disconnect(stream) => {
+                    // Remove stream from list. There is no opposite of `retain_mut` 😔
                     streams.retain_mut(|s| s.peer_addr().unwrap() != stream.peer_addr().unwrap());
                 }
                 Event::Connect(stream) => {
                     streams.push(stream);
                 }
                 Event::Message(wrapper) => {
-                    if proxied_events.contains(&wrapper.id) {
+                    if proxied_events.put(wrapper.id.clone(), true).is_some() {
                         continue;
                     }
-                    proxied_events.put(wrapper.id.clone(), true);
 
                     tx_output.send(wrapper.clone()).unwrap();
                     for mut stream in streams.iter() {
