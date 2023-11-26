@@ -75,7 +75,8 @@ fn main() {
             Update,
             (
                 write_inputs_to_network,
-                write_mouse_clicks_as_bullets_to_network,
+                write_mouse_left_clicks_as_bullets_to_network,
+                write_mouse_right_clicks_as_blocks_to_network,
                 write_i_am_out_of_sync_events_to_network,
             ),
         )
@@ -624,25 +625,16 @@ fn handle_despawn_player_events(
 
 fn write_inputs_to_network(
     windows: Query<&Window, With<PrimaryWindow>>,
-    mouse_button_input: Res<Input<MouseButton>>,
     main_players: Query<(&Transform, &Player, &Handle<ColorMaterial>), With<MainPlayer>>,
     colors: Res<Assets<ColorMaterial>>,
     keyboard_input: Res<Input<KeyCode>>,
     server: Res<NetServer>,
 ) {
-    write_inputs_to_server_fallible(
-        windows,
-        mouse_button_input,
-        main_players,
-        colors,
-        keyboard_input,
-        server,
-    );
+    write_inputs_to_server_fallible(windows, main_players, colors, keyboard_input, server);
 }
 
 fn write_inputs_to_server_fallible(
     windows: Query<&Window, With<PrimaryWindow>>,
-    mouse_button_input: Res<Input<MouseButton>>,
     main_players: Query<(&Transform, &Player, &Handle<ColorMaterial>), With<MainPlayer>>,
     colors: Res<Assets<ColorMaterial>>,
     keyboard_input: Res<Input<KeyCode>>,
@@ -677,24 +669,10 @@ fn write_inputs_to_server_fallible(
             .unwrap();
     }
 
-    if mouse_button_input.just_pressed(MouseButton::Right) {
-        server
-            .tx
-            .send(applesauce::Wrapper {
-                id: Uuid::new_v4().to_string(),
-                inner: Some(Inner::Block(applesauce::Block {
-                    player_id: player.id.clone(),
-                    ..Default::default()
-                })),
-                ..Default::default()
-            })
-            .unwrap();
-    }
-
-    Some(())
+    None
 }
 
-fn write_mouse_clicks_as_bullets_to_network(
+fn write_mouse_left_clicks_as_bullets_to_network(
     mouse_button_input: Res<Input<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
@@ -702,7 +680,7 @@ fn write_mouse_clicks_as_bullets_to_network(
     server: Res<NetServer>,
     time: Res<Time>,
 ) {
-    write_mouse_clicks_as_bullets_to_network_fallible(
+    write_mouse_left_clicks_as_bullets_to_network_fallible(
         mouse_button_input,
         windows,
         cameras,
@@ -712,7 +690,7 @@ fn write_mouse_clicks_as_bullets_to_network(
     );
 }
 
-fn write_mouse_clicks_as_bullets_to_network_fallible(
+fn write_mouse_left_clicks_as_bullets_to_network_fallible(
     mouse_button_input: Res<Input<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
@@ -767,6 +745,43 @@ fn write_mouse_clicks_as_bullets_to_network_fallible(
         .unwrap();
 
     Some(())
+}
+
+fn write_mouse_right_clicks_as_blocks_to_network(
+    mouse_button_input: Res<Input<MouseButton>>,
+    server: Res<NetServer>,
+    main_players: Query<&Player, With<MainPlayer>>,
+) {
+    write_mouse_right_clicks_as_blocks_to_network_fallible(
+        mouse_button_input,
+        server,
+        main_players,
+    );
+}
+
+fn write_mouse_right_clicks_as_blocks_to_network_fallible(
+    mouse_button_input: Res<Input<MouseButton>>,
+    server: Res<NetServer>,
+    main_players: Query<&Player, With<MainPlayer>>,
+) -> Option<()> {
+    let player = main_players.get_single().ok()?;
+
+    if !mouse_button_input.just_pressed(MouseButton::Right) {
+        return None;
+    }
+
+    server
+        .tx
+        .send(
+            applesauce::Block {
+                player_id: player.id.clone(),
+                special_fields: Default::default(),
+            }
+            .into(),
+        )
+        .unwrap();
+
+    None
 }
 
 fn handle_broadcast_state_event(

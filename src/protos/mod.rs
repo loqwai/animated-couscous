@@ -97,3 +97,13 @@ impl Into<Option<generated::applesauce::wrapper::Inner>> for generated::applesau
         Some(generated::applesauce::wrapper::Inner::Bullet(self))
     }
 }
+
+impl Into<generated::applesauce::Wrapper> for generated::applesauce::Block {
+    fn into(self) -> generated::applesauce::Wrapper {
+        generated::applesauce::Wrapper {
+            id: uuid::Uuid::new_v4().to_string(),
+            inner: Some(generated::applesauce::wrapper::Inner::Block(self)),
+            special_fields: Default::default(),
+        }
+    }
+}
