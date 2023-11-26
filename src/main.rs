@@ -16,7 +16,7 @@ use protos::generated::applesauce::{self};
 use uuid::Uuid;
 
 const BULLET_SPEED: f32 = 10.;
-const FIRE_TIMEOUT: u64 = 100;
+const FIRE_TIMEOUT: u64 = 500;
 
 fn main() {
     let window_offset: i32 = std::env::var("WINDOW_OFFSET")
@@ -69,7 +69,7 @@ fn main() {
             ),
         )
         // AI?
-        .add_systems(Update, auto_fire)
+        // .add_systems(Update, auto_fire)
         // Write new state to network
         .add_systems(
             Update,
@@ -302,6 +302,7 @@ fn despawn_things_that_need_despawning(
     }
 }
 
+#[allow(dead_code)]
 fn auto_fire(
     mut main_players: Query<(&mut Player, &Transform), With<MainPlayer>>,
     server: Res<NetServer>,
@@ -473,10 +474,7 @@ fn ensure_main_player(
                 player: Player {
                     id: id.clone(),
                     color: Color::rgb(r, g, b),
-                    fire_timeout: Timer::new(
-                        Duration::from_millis(FIRE_TIMEOUT),
-                        TimerMode::Repeating,
-                    ),
+                    fire_timeout: Timer::new(Duration::from_millis(FIRE_TIMEOUT), TimerMode::Once),
                 },
                 mesh_bundle: MaterialMesh2dBundle {
                     mesh: meshes.add(shape::Circle::new(50.).into()).into(),
@@ -532,7 +530,7 @@ fn handle_player_sync_events(
                         color: event.color,
                         fire_timeout: Timer::new(
                             Duration::from_millis(FIRE_TIMEOUT),
-                            TimerMode::Repeating,
+                            TimerMode::Once,
                         ),
                     },
                     mesh_bundle: MaterialMesh2dBundle {
@@ -700,8 +698,9 @@ fn write_mouse_clicks_as_bullets_to_network(
     mouse_button_input: Res<Input<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
-    main_players: Query<(&Player, &Transform), With<MainPlayer>>,
+    main_players: Query<(&mut Player, &Transform), With<MainPlayer>>,
     server: Res<NetServer>,
+    time: Res<Time>,
 ) {
     write_mouse_clicks_as_bullets_to_network_fallible(
         mouse_button_input,
@@ -709,6 +708,7 @@ fn write_mouse_clicks_as_bullets_to_network(
         cameras,
         main_players,
         server,
+        time,
     );
 }
 
@@ -716,13 +716,18 @@ fn write_mouse_clicks_as_bullets_to_network_fallible(
     mouse_button_input: Res<Input<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
-    main_players: Query<(&Player, &Transform), With<MainPlayer>>,
+    mut main_players: Query<(&mut Player, &Transform), With<MainPlayer>>,
     server: Res<NetServer>,
+    time: Res<Time>,
 ) -> Option<()> {
-    if !mouse_button_input.just_pressed(MouseButton::Left) {
+    let mut player = main_players.get_single_mut().ok()?;
+    player.0.fire_timeout.tick(time.delta());
+
+    if !mouse_button_input.just_pressed(MouseButton::Left) || !player.0.fire_timeout.finished() {
         return None;
     };
-    let player = main_players.get_single().ok()?;
+
+    player.0.fire_timeout.reset();
 
     let cursor_position = windows.get_single().unwrap().cursor_position()?;
     let (camera, camera_transform) = cameras.get_single().unwrap();
