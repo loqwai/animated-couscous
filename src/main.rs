@@ -13,7 +13,6 @@ use protos::generated::applesauce::wrapper::Inner;
 use rand::prelude::*;
 
 use protos::generated::applesauce::{self};
-use uuid::Uuid;
 
 const BULLET_SPEED: f32 = 10.;
 const FIRE_TIMEOUT: u64 = 500;
@@ -253,7 +252,7 @@ fn read_network_messages_to_events(
 ) {
     for input in connection.rx.try_iter() {
         match input.inner.unwrap() {
-            Inner::PlayerSync(e) => {
+            Inner::Player(e) => {
                 player_spawn_events.send(PlayerSyncEvent {
                     player_id: e.id,
                     position: e.position.unwrap().into(),
@@ -327,17 +326,15 @@ fn auto_fire(
 
     server
         .tx
-        .send(applesauce::Wrapper {
-            id: uuid::Uuid::new_v4().to_string(),
-            inner: applesauce::Bullet {
+        .send(
+            applesauce::Bullet {
                 id: uuid::Uuid::new_v4().to_string(),
                 position: applesauce::Vec3::from(transform.translation).into(),
                 velocity: applesauce::Vec3::from(Vec2::new(1., 0.) * BULLET_SPEED).into(),
                 special_fields: Default::default(),
             }
             .into(),
-            special_fields: Default::default(),
-        })
+        )
         .unwrap();
 
     let bullet_position = player.1.translation.xy() + Vec2::new(-71.0, 0.);
@@ -347,17 +344,15 @@ fn auto_fire(
 
     server
         .tx
-        .send(applesauce::Wrapper {
-            id: uuid::Uuid::new_v4().to_string(),
-            inner: applesauce::Bullet {
+        .send(
+            applesauce::Bullet {
                 id: uuid::Uuid::new_v4().to_string(),
                 position: applesauce::Vec3::from(transform.translation).into(),
                 velocity: applesauce::Vec3::from(Vec2::new(-1., 0.) * BULLET_SPEED).into(),
                 special_fields: Default::default(),
             }
             .into(),
-            special_fields: Default::default(),
-        })
+        )
         .unwrap();
 }
 
@@ -488,17 +483,16 @@ fn ensure_main_player(
 
         server
             .tx
-            .send(applesauce::Wrapper {
-                id: uuid::Uuid::new_v4().to_string(),
-                inner: Some(Inner::PlayerSync(applesauce::Player {
+            .send(
+                applesauce::Player {
                     id: id.clone(),
                     position: applesauce::Vec3::from(Vec3::new(x, 50., z)).into(),
                     color: applesauce::Color::from(Color::rgb(r, g, b)).into(),
                     move_data: applesauce::MoveData::from((false, false)).into(),
                     special_fields: Default::default(),
-                })),
-                ..Default::default()
-            })
+                }
+                .into(),
+            )
             .unwrap();
     }
 }
@@ -570,11 +564,7 @@ fn bullet_hit_despawns_player_and_bullet(
 
                 server
                     .tx
-                    .send(applesauce::Wrapper {
-                        id: uuid::Uuid::new_v4().to_string(),
-                        inner: applesauce::DespawnPlayer::from(player.0.id.clone()).into(),
-                        special_fields: Default::default(),
-                    })
+                    .send(applesauce::DespawnPlayer::from(player.0.id.clone()).into())
                     .unwrap();
             }
         }
@@ -655,17 +645,16 @@ fn write_inputs_to_server_fallible(
     if a_just_pressed || d_just_pressed || a_just_released || d_just_released {
         server
             .tx
-            .send(applesauce::Wrapper {
-                id: Uuid::new_v4().to_string(),
-                inner: Some(Inner::PlayerSync(applesauce::Player {
+            .send(
+                applesauce::Player {
                     id: player.id.clone(),
                     position: applesauce::Vec3::from(player_transform.translation).into(),
                     color: applesauce::Color::from(color).into(),
                     move_data: applesauce::MoveData::from((a_pressed, d_pressed)).into(),
                     special_fields: Default::default(),
-                })),
-                special_fields: Default::default(),
-            })
+                }
+                .into(),
+            )
             .unwrap();
     }
 
@@ -731,17 +720,15 @@ fn write_mouse_left_clicks_as_bullets_to_network_fallible(
 
     server
         .tx
-        .send(applesauce::Wrapper {
-            id: uuid::Uuid::new_v4().to_string(),
-            inner: applesauce::Bullet {
+        .send(
+            applesauce::Bullet {
                 id: uuid::Uuid::new_v4().to_string(),
                 position: applesauce::Vec3::from(transform.translation).into(),
                 velocity: applesauce::Vec3::from(aim.normalize() * BULLET_SPEED).into(),
                 special_fields: Default::default(),
             }
             .into(),
-            special_fields: Default::default(),
-        })
+        )
         .unwrap();
 
     Some(())
@@ -801,9 +788,8 @@ fn handle_broadcast_state_event(
         .for_each(|(player, transform, move_left, move_right)| {
             server
                 .tx
-                .send(applesauce::Wrapper {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    inner: Some(Inner::PlayerSync(applesauce::Player {
+                .send(
+                    applesauce::Player {
                         id: player.id.clone(),
                         position: applesauce::Vec3::from(transform.translation).into(),
                         color: applesauce::Color::from(player.color).into(),
@@ -813,9 +799,9 @@ fn handle_broadcast_state_event(
                         ))
                         .into(),
                         special_fields: Default::default(),
-                    })),
-                    ..Default::default()
-                })
+                    }
+                    .into(),
+                )
                 .unwrap();
         });
 
@@ -823,16 +809,15 @@ fn handle_broadcast_state_event(
     bullets.iter().for_each(|(bullet, transform)| {
         server
             .tx
-            .send(applesauce::Wrapper {
-                id: uuid::Uuid::new_v4().to_string(),
-                inner: Some(Inner::Bullet(applesauce::Bullet {
+            .send(
+                applesauce::Bullet {
                     id: bullet.id.clone(),
                     position: applesauce::Vec3::from(transform.translation).into(),
                     velocity: applesauce::Vec3::from(bullet.velocity).into(),
                     special_fields: Default::default(),
-                })),
-                ..Default::default()
-            })
+                }
+                .into(),
+            )
             .unwrap();
     });
 }
@@ -847,12 +832,5 @@ fn write_i_am_out_of_sync_events_to_network(
 
     for _ in out_of_sync_events.read() {}
 
-    server
-        .tx
-        .send(applesauce::Wrapper {
-            id: uuid::Uuid::new_v4().to_string(),
-            inner: Some(Inner::OutOfSync(applesauce::OutOfSync::new())),
-            ..Default::default()
-        })
-        .unwrap();
+    server.tx.send(applesauce::OutOfSync::new().into()).unwrap();
 }

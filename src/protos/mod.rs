@@ -86,23 +86,41 @@ impl From<String> for generated::applesauce::DespawnPlayer {
     }
 }
 
-impl Into<Option<generated::applesauce::wrapper::Inner>> for generated::applesauce::DespawnPlayer {
-    fn into(self) -> Option<generated::applesauce::wrapper::Inner> {
-        Some(generated::applesauce::wrapper::Inner::DespawnPlayer(self))
+impl Into<generated::applesauce::Wrapper> for generated::applesauce::DespawnPlayer {
+    fn into(self) -> generated::applesauce::Wrapper {
+        generated::applesauce::wrapper::Inner::DespawnPlayer(self).into()
     }
 }
 
-impl Into<Option<generated::applesauce::wrapper::Inner>> for generated::applesauce::Bullet {
-    fn into(self) -> Option<generated::applesauce::wrapper::Inner> {
-        Some(generated::applesauce::wrapper::Inner::Bullet(self))
+impl Into<generated::applesauce::Wrapper> for generated::applesauce::Bullet {
+    fn into(self) -> generated::applesauce::Wrapper {
+        generated::applesauce::wrapper::Inner::Bullet(self).into()
     }
 }
 
 impl Into<generated::applesauce::Wrapper> for generated::applesauce::Block {
     fn into(self) -> generated::applesauce::Wrapper {
+        generated::applesauce::wrapper::Inner::Block(self).into()
+    }
+}
+
+impl Into<generated::applesauce::Wrapper> for generated::applesauce::Player {
+    fn into(self) -> generated::applesauce::Wrapper {
+        generated::applesauce::wrapper::Inner::Player(self).into()
+    }
+}
+
+impl Into<generated::applesauce::Wrapper> for generated::applesauce::OutOfSync {
+    fn into(self) -> generated::applesauce::Wrapper {
+        generated::applesauce::wrapper::Inner::OutOfSync(self).into()
+    }
+}
+
+impl Into<generated::applesauce::Wrapper> for generated::applesauce::wrapper::Inner {
+    fn into(self) -> generated::applesauce::Wrapper {
         generated::applesauce::Wrapper {
             id: uuid::Uuid::new_v4().to_string(),
-            inner: Some(generated::applesauce::wrapper::Inner::Block(self)),
+            inner: Some(self),
             special_fields: Default::default(),
         }
     }
