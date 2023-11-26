@@ -51,11 +51,11 @@ fn main() {
                 //
                 // Update state from network events
                 read_network_messages_to_events,
-                handle_bullet_sync_events,
-                handle_player_sync_events,
                 handle_block_events,
-                handle_despawn_player_events,
                 handle_broadcast_state_event,
+                handle_bullet_sync_events,
+                handle_despawn_player_events,
+                handle_player_sync_events,
                 //
                 // Calculate next game state
                 bullet_hit_despawns_player_and_bullet,
@@ -66,10 +66,10 @@ fn main() {
                 shield_blocks_bullets,
                 //
                 // Write new state to network
-                write_inputs_to_network,
+                write_i_am_out_of_sync_events_to_network,
+                write_keyboard_as_player_to_network,
                 write_mouse_left_clicks_as_bullets_to_network,
                 write_mouse_right_clicks_as_blocks_to_network,
-                write_i_am_out_of_sync_events_to_network,
             ),
         )
         .add_systems(PostUpdate, despawn_things_that_need_despawning)
@@ -208,35 +208,6 @@ fn start_local_server(mut commands: Commands) {
 }
 
 #[allow(dead_code)]
-fn debug_events(
-    mut broadcast_state_events: EventReader<BroadcastStateEvent>,
-    mut i_am_out_of_sync_events: EventReader<IAmOutOfSyncEvent>,
-    mut player_sync_events: EventReader<PlayerSyncEvent>,
-    mut block_events: EventReader<BlockEvent>,
-    mut despawn_player_events: EventReader<DespawnPlayerEvent>,
-    mut bullet_sync_events: EventReader<BulletSyncEvent>,
-) {
-    for _ in broadcast_state_events.read() {
-        println!("broadcast_state_event");
-    }
-    for _ in i_am_out_of_sync_events.read() {
-        println!("i_am_out_of_sync_event");
-    }
-    for _ in player_sync_events.read() {
-        println!("player_sync_event");
-    }
-    for _ in block_events.read() {
-        println!("block_event");
-    }
-    for _ in despawn_player_events.read() {
-        println!("despawn_player_event");
-    }
-    for _ in bullet_sync_events.read() {
-        println!("bullet_sync_event");
-    }
-}
-
-#[allow(dead_code)]
 fn auto_fire(
     mut main_players: Query<(&mut Player, &Transform), With<MainPlayer>>,
     server: Res<NetServer>,
@@ -290,6 +261,35 @@ fn auto_fire(
         .unwrap();
 }
 
+#[allow(dead_code)]
+fn debug_events(
+    mut broadcast_state_events: EventReader<BroadcastStateEvent>,
+    mut i_am_out_of_sync_events: EventReader<IAmOutOfSyncEvent>,
+    mut player_sync_events: EventReader<PlayerSyncEvent>,
+    mut block_events: EventReader<BlockEvent>,
+    mut despawn_player_events: EventReader<DespawnPlayerEvent>,
+    mut bullet_sync_events: EventReader<BulletSyncEvent>,
+) {
+    for _ in broadcast_state_events.read() {
+        println!("broadcast_state_event");
+    }
+    for _ in i_am_out_of_sync_events.read() {
+        println!("i_am_out_of_sync_event");
+    }
+    for _ in player_sync_events.read() {
+        println!("player_sync_event");
+    }
+    for _ in block_events.read() {
+        println!("block_event");
+    }
+    for _ in despawn_player_events.read() {
+        println!("despawn_player_event");
+    }
+    for _ in bullet_sync_events.read() {
+        println!("bullet_sync_event");
+    }
+}
+
 fn read_network_messages_to_events(
     connection: ResMut<NetServer>,
     mut player_spawn_events: EventWriter<PlayerSyncEvent>,
@@ -335,32 +335,87 @@ fn read_network_messages_to_events(
     }
 }
 
-fn bullet_moves_forward_system(mut bullets: Query<(&Bullet, &mut Transform)>) {
-    for (bullet, mut transform) in bullets.iter_mut() {
-        transform.translation += bullet.velocity;
-    }
-}
-
-fn despawn_things_that_need_despawning(
+fn handle_block_events(
     mut commands: Commands,
-    entities: Query<Entity, With<Despawn>>,
+    mut block_events: EventReader<BlockEvent>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut out_of_sync_events: EventWriter<IAmOutOfSyncEvent>,
+    players: Query<(Entity, &Player)>,
 ) {
-    for entity in entities.iter() {
-        commands.entity(entity).despawn_recursive();
+    for event in block_events.read() {
+        match players.iter().find(|(_, p)| p.id == event.player_id) {
+            None => out_of_sync_events.send(IAmOutOfSyncEvent),
+            Some((entity, _)) => {
+                let shield = commands
+                    .spawn(ShieldBundle {
+                        shield: Shield {
+                            ttl: Timer::new(Duration::from_millis(100), TimerMode::Once),
+                        },
+                        mesh_bundle: MaterialMesh2dBundle {
+                            mesh: meshes.add(shape::Circle::new(60.).into()).into(),
+                            material: materials
+                                .add(ColorMaterial::from(Color::rgba(1., 1., 1., 0.2))),
+                            transform: Transform::from_translation(Vec3::new(0., 0., 0.1)),
+                            ..default()
+                        },
+                    })
+                    .id();
+                commands.entity(entity).add_child(shield);
+            }
+        }
     }
 }
 
-fn move_moveables(
-    mut left_movers: Query<&mut Transform, (With<MoveLeft>, Without<MoveRight>)>,
-    mut right_movers: Query<&mut Transform, (With<MoveRight>, Without<MoveLeft>)>,
+fn handle_broadcast_state_event(
+    server: ResMut<NetServer>,
+    players: Query<(&Player, &Transform, Option<&MoveLeft>, Option<&MoveRight>)>,
+    bullets: Query<(&Bullet, &Transform)>,
+    mut broadcast_state_events: EventReader<BroadcastStateEvent>,
 ) {
-    for mut left_mover in left_movers.iter_mut() {
-        left_mover.translation.x -= 2.;
+    if broadcast_state_events.is_empty() {
+        return;
     }
 
-    for mut right_mover in right_movers.iter_mut() {
-        right_mover.translation.x += 2.;
-    }
+    broadcast_state_events.clear();
+
+    players
+        .iter()
+        .for_each(|(player, transform, move_left, move_right)| {
+            server
+                .tx
+                .send(
+                    applesauce::Player {
+                        id: player.id.clone(),
+                        position: applesauce::Vec3::from(transform.translation).into(),
+                        color: applesauce::Color::from(player.color).into(),
+                        move_data: applesauce::MoveData::from((
+                            move_left.is_some(),
+                            move_right.is_some(),
+                        ))
+                        .into(),
+                        special_fields: Default::default(),
+                    }
+                    .into(),
+                )
+                .unwrap();
+        });
+
+    /* uncommenting the follow code causes the app to hang occasionally */
+    bullets.iter().for_each(|(bullet, transform)| {
+        server
+            .tx
+            .send(
+                applesauce::Bullet {
+                    id: bullet.id.clone(),
+                    position: applesauce::Vec3::from(transform.translation).into(),
+                    velocity: applesauce::Vec3::from(bullet.velocity).into(),
+                    special_fields: Default::default(),
+                }
+                .into(),
+            )
+            .unwrap();
+    });
 }
 
 fn handle_bullet_sync_events(
@@ -407,87 +462,18 @@ fn handle_bullet_sync_events(
     }
 }
 
-fn handle_block_events(
+fn handle_despawn_player_events(
     mut commands: Commands,
-    mut block_events: EventReader<BlockEvent>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    mut out_of_sync_events: EventWriter<IAmOutOfSyncEvent>,
     players: Query<(Entity, &Player)>,
+    mut despawn_player_events: EventReader<DespawnPlayerEvent>,
+    mut dead_list: ResMut<DeadList>,
 ) {
-    for event in block_events.read() {
-        match players.iter().find(|(_, p)| p.id == event.player_id) {
-            None => out_of_sync_events.send(IAmOutOfSyncEvent),
-            Some((entity, _)) => {
-                let shield = commands
-                    .spawn(ShieldBundle {
-                        shield: Shield {
-                            ttl: Timer::new(Duration::from_millis(100), TimerMode::Once),
-                        },
-                        mesh_bundle: MaterialMesh2dBundle {
-                            mesh: meshes.add(shape::Circle::new(60.).into()).into(),
-                            material: materials
-                                .add(ColorMaterial::from(Color::rgba(1., 1., 1., 0.2))),
-                            transform: Transform::from_translation(Vec3::new(0., 0., 0.1)),
-                            ..default()
-                        },
-                    })
-                    .id();
-                commands.entity(entity).add_child(shield);
-            }
+    for event in despawn_player_events.read() {
+        dead_list.0.insert(event.player_id.clone());
+
+        if let Some((entity, _)) = players.iter().find(|(_, p)| p.id == event.player_id) {
+            commands.entity(entity).insert(Despawn);
         }
-    }
-}
-
-fn ensure_main_player(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    main_players: Query<Entity, With<MainPlayer>>,
-    server: Res<NetServer>,
-) {
-    if main_players.iter().count() == 0 {
-        let id = uuid::Uuid::new_v4().to_string();
-        let mut rng = rand::thread_rng();
-        let mut x: f32 = rng.gen();
-        x *= 1000.;
-        x -= 500.;
-        let z: f32 = rng.gen();
-
-        let r = rng.gen();
-        let g = rng.gen();
-        let b = rng.gen();
-
-        commands.spawn(MainPlayerBundle {
-            main_player: MainPlayer,
-            player_bundle: PlayerBundle {
-                player: Player {
-                    id: id.clone(),
-                    color: Color::rgb(r, g, b),
-                    fire_timeout: Timer::new(Duration::from_millis(FIRE_TIMEOUT), TimerMode::Once),
-                },
-                mesh_bundle: MaterialMesh2dBundle {
-                    mesh: meshes.add(shape::Circle::new(50.).into()).into(),
-                    material: materials.add(ColorMaterial::from(Color::rgb(r, g, b))),
-                    transform: Transform::from_translation(Vec3::new(x, 50., z)),
-                    ..default()
-                },
-            },
-        });
-
-        server
-            .tx
-            .send(
-                applesauce::Player {
-                    id: id.clone(),
-                    position: applesauce::Vec3::from(Vec3::new(x, 50., z)).into(),
-                    color: applesauce::Color::from(Color::rgb(r, g, b)).into(),
-                    move_data: applesauce::MoveData::from((false, false)).into(),
-                    special_fields: Default::default(),
-                }
-                .into(),
-            )
-            .unwrap();
     }
 }
 
@@ -565,17 +551,9 @@ fn bullet_hit_despawns_player_and_bullet(
     }
 }
 
-fn shield_blocks_bullets(
-    mut commands: Commands,
-    bullets: Query<(Entity, &Transform), With<Bullet>>,
-    shields: Query<&GlobalTransform, With<Shield>>,
-) {
-    for (bullet, bloc) in bullets.iter() {
-        for shield in shields.iter() {
-            if bloc.translation.distance(shield.translation()) < 60. {
-                commands.entity(bullet).insert(Despawn);
-            }
-        }
+fn bullet_moves_forward_system(mut bullets: Query<(&Bullet, &mut Transform)>) {
+    for (bullet, mut transform) in bullets.iter_mut() {
+        transform.translation += bullet.velocity;
     }
 }
 
@@ -592,32 +570,115 @@ fn despawn_shield_on_ttl(
     }
 }
 
-fn handle_despawn_player_events(
+fn ensure_main_player(
     mut commands: Commands,
-    players: Query<(Entity, &Player)>,
-    mut despawn_player_events: EventReader<DespawnPlayerEvent>,
-    mut dead_list: ResMut<DeadList>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    main_players: Query<Entity, With<MainPlayer>>,
+    server: Res<NetServer>,
 ) {
-    for event in despawn_player_events.read() {
-        dead_list.0.insert(event.player_id.clone());
+    if main_players.iter().count() == 0 {
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut rng = rand::thread_rng();
+        let mut x: f32 = rng.gen();
+        x *= 1000.;
+        x -= 500.;
+        let z: f32 = rng.gen();
 
-        if let Some((entity, _)) = players.iter().find(|(_, p)| p.id == event.player_id) {
-            commands.entity(entity).insert(Despawn);
+        let r = rng.gen();
+        let g = rng.gen();
+        let b = rng.gen();
+
+        commands.spawn(MainPlayerBundle {
+            main_player: MainPlayer,
+            player_bundle: PlayerBundle {
+                player: Player {
+                    id: id.clone(),
+                    color: Color::rgb(r, g, b),
+                    fire_timeout: Timer::new(Duration::from_millis(FIRE_TIMEOUT), TimerMode::Once),
+                },
+                mesh_bundle: MaterialMesh2dBundle {
+                    mesh: meshes.add(shape::Circle::new(50.).into()).into(),
+                    material: materials.add(ColorMaterial::from(Color::rgb(r, g, b))),
+                    transform: Transform::from_translation(Vec3::new(x, 50., z)),
+                    ..default()
+                },
+            },
+        });
+
+        server
+            .tx
+            .send(
+                applesauce::Player {
+                    id: id.clone(),
+                    position: applesauce::Vec3::from(Vec3::new(x, 50., z)).into(),
+                    color: applesauce::Color::from(Color::rgb(r, g, b)).into(),
+                    move_data: applesauce::MoveData::from((false, false)).into(),
+                    special_fields: Default::default(),
+                }
+                .into(),
+            )
+            .unwrap();
+    }
+}
+
+fn move_moveables(
+    mut left_movers: Query<&mut Transform, (With<MoveLeft>, Without<MoveRight>)>,
+    mut right_movers: Query<&mut Transform, (With<MoveRight>, Without<MoveLeft>)>,
+) {
+    for mut left_mover in left_movers.iter_mut() {
+        left_mover.translation.x -= 2.;
+    }
+
+    for mut right_mover in right_movers.iter_mut() {
+        right_mover.translation.x += 2.;
+    }
+}
+
+fn shield_blocks_bullets(
+    mut commands: Commands,
+    bullets: Query<(Entity, &Transform), With<Bullet>>,
+    shields: Query<&GlobalTransform, With<Shield>>,
+) {
+    for (bullet, bloc) in bullets.iter() {
+        for shield in shields.iter() {
+            if bloc.translation.distance(shield.translation()) < 60. {
+                commands.entity(bullet).insert(Despawn);
+            }
         }
     }
 }
 
-fn write_inputs_to_network(
+fn write_i_am_out_of_sync_events_to_network(
+    server: ResMut<NetServer>,
+    mut out_of_sync_events: EventReader<IAmOutOfSyncEvent>,
+) {
+    if out_of_sync_events.is_empty() {
+        return;
+    }
+
+    for _ in out_of_sync_events.read() {}
+
+    server.tx.send(applesauce::OutOfSync::new().into()).unwrap();
+}
+
+fn write_keyboard_as_player_to_network(
     windows: Query<&Window, With<PrimaryWindow>>,
     main_players: Query<(&Transform, &Player, &Handle<ColorMaterial>), With<MainPlayer>>,
     colors: Res<Assets<ColorMaterial>>,
     keyboard_input: Res<Input<KeyCode>>,
     server: Res<NetServer>,
 ) {
-    write_inputs_to_server_fallible(windows, main_players, colors, keyboard_input, server);
+    write_keyboard_as_player_to_network_fallible(
+        windows,
+        main_players,
+        colors,
+        keyboard_input,
+        server,
+    );
 }
 
-fn write_inputs_to_server_fallible(
+fn write_keyboard_as_player_to_network_fallible(
     windows: Query<&Window, With<PrimaryWindow>>,
     main_players: Query<(&Transform, &Player, &Handle<ColorMaterial>), With<MainPlayer>>,
     colors: Res<Assets<ColorMaterial>>,
@@ -765,66 +826,11 @@ fn write_mouse_right_clicks_as_blocks_to_network_fallible(
     None
 }
 
-fn handle_broadcast_state_event(
-    server: ResMut<NetServer>,
-    players: Query<(&Player, &Transform, Option<&MoveLeft>, Option<&MoveRight>)>,
-    bullets: Query<(&Bullet, &Transform)>,
-    mut broadcast_state_events: EventReader<BroadcastStateEvent>,
+fn despawn_things_that_need_despawning(
+    mut commands: Commands,
+    entities: Query<Entity, With<Despawn>>,
 ) {
-    if broadcast_state_events.is_empty() {
-        return;
+    for entity in entities.iter() {
+        commands.entity(entity).despawn_recursive();
     }
-
-    broadcast_state_events.clear();
-
-    players
-        .iter()
-        .for_each(|(player, transform, move_left, move_right)| {
-            server
-                .tx
-                .send(
-                    applesauce::Player {
-                        id: player.id.clone(),
-                        position: applesauce::Vec3::from(transform.translation).into(),
-                        color: applesauce::Color::from(player.color).into(),
-                        move_data: applesauce::MoveData::from((
-                            move_left.is_some(),
-                            move_right.is_some(),
-                        ))
-                        .into(),
-                        special_fields: Default::default(),
-                    }
-                    .into(),
-                )
-                .unwrap();
-        });
-
-    /* uncommenting the follow code causes the app to hang occasionally */
-    bullets.iter().for_each(|(bullet, transform)| {
-        server
-            .tx
-            .send(
-                applesauce::Bullet {
-                    id: bullet.id.clone(),
-                    position: applesauce::Vec3::from(transform.translation).into(),
-                    velocity: applesauce::Vec3::from(bullet.velocity).into(),
-                    special_fields: Default::default(),
-                }
-                .into(),
-            )
-            .unwrap();
-    });
-}
-
-fn write_i_am_out_of_sync_events_to_network(
-    server: ResMut<NetServer>,
-    mut out_of_sync_events: EventReader<IAmOutOfSyncEvent>,
-) {
-    if out_of_sync_events.is_empty() {
-        return;
-    }
-
-    for _ in out_of_sync_events.read() {}
-
-    server.tx.send(applesauce::OutOfSync::new().into()).unwrap();
 }
