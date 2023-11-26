@@ -41,38 +41,31 @@ fn main() {
         .add_event::<BlockEvent>()
         .add_event::<DespawnPlayerEvent>()
         .add_event::<BulletSyncEvent>()
-        .add_systems(Startup, setup)
-        .add_systems(Startup, start_local_server)
-        // Update state from network events
+        .add_systems(Startup, (setup, start_local_server))
         .add_systems(
             Update,
             (
+                // optional debug systems
+                // auto_fire,
+                // debug_events,
+                //
+                // Update state from network events
                 read_network_messages_to_events,
                 handle_bullet_sync_events,
                 handle_player_sync_events,
                 handle_block_events,
                 handle_despawn_player_events,
                 handle_broadcast_state_event,
-            ),
-        )
-        // Calculate next game state
-        .add_systems(
-            Update,
-            (
+                //
+                // Calculate next game state
                 bullet_hit_despawns_player_and_bullet,
                 bullet_moves_forward_system,
                 despawn_shield_on_ttl,
                 ensure_main_player,
                 move_moveables,
                 shield_blocks_bullets,
-            ),
-        )
-        // AI?
-        // .add_systems(Update, auto_fire)
-        // Write new state to network
-        .add_systems(
-            Update,
-            (
+                //
+                // Write new state to network
                 write_inputs_to_network,
                 write_mouse_left_clicks_as_bullets_to_network,
                 write_mouse_right_clicks_as_blocks_to_network,
@@ -214,33 +207,88 @@ fn start_local_server(mut commands: Commands) {
     commands.insert_resource(NetServer { tx, rx });
 }
 
-// fn debug_events(
-//     mut broadcast_state_events: EventReader<BroadcastStateEvent>,
-//     mut i_am_out_of_sync_events: EventReader<IAmOutOfSyncEvent>,
-//     mut player_sync_events: EventReader<PlayerSyncEvent>,
-//     mut block_events: EventReader<BlockEvent>,
-//     mut despawn_player_events: EventReader<DespawnPlayerEvent>,
-//     mut bullet_sync_events: EventReader<BulletSyncEvent>,
-// ) {
-//     for _ in broadcast_state_events.read() {
-//         println!("broadcast_state_event");
-//     }
-//     for _ in i_am_out_of_sync_events.read() {
-//         println!("i_am_out_of_sync_event");
-//     }
-//     for _ in player_sync_events.read() {
-//         println!("player_sync_event");
-//     }
-//     for _ in block_events.read() {
-//         println!("block_event");
-//     }
-//     for _ in despawn_player_events.read() {
-//         println!("despawn_player_event");
-//     }
-//     for _ in bullet_sync_events.read() {
-//         println!("bullet_sync_event");
-//     }
-// }
+#[allow(dead_code)]
+fn debug_events(
+    mut broadcast_state_events: EventReader<BroadcastStateEvent>,
+    mut i_am_out_of_sync_events: EventReader<IAmOutOfSyncEvent>,
+    mut player_sync_events: EventReader<PlayerSyncEvent>,
+    mut block_events: EventReader<BlockEvent>,
+    mut despawn_player_events: EventReader<DespawnPlayerEvent>,
+    mut bullet_sync_events: EventReader<BulletSyncEvent>,
+) {
+    for _ in broadcast_state_events.read() {
+        println!("broadcast_state_event");
+    }
+    for _ in i_am_out_of_sync_events.read() {
+        println!("i_am_out_of_sync_event");
+    }
+    for _ in player_sync_events.read() {
+        println!("player_sync_event");
+    }
+    for _ in block_events.read() {
+        println!("block_event");
+    }
+    for _ in despawn_player_events.read() {
+        println!("despawn_player_event");
+    }
+    for _ in bullet_sync_events.read() {
+        println!("bullet_sync_event");
+    }
+}
+
+#[allow(dead_code)]
+fn auto_fire(
+    mut main_players: Query<(&mut Player, &Transform), With<MainPlayer>>,
+    server: Res<NetServer>,
+    time: Res<Time>,
+) {
+    let player = main_players.get_single_mut().ok();
+    if player.is_none() {
+        return;
+    }
+    let mut player = player.unwrap();
+    player.0.fire_timeout.tick(time.delta());
+
+    if !player.0.fire_timeout.finished() {
+        return;
+    }
+
+    let bullet_position = player.1.translation.xy() + Vec2::new(71.0, 0.);
+    let rotation = Quat::from_rotation_z(std::f32::consts::PI);
+    let mut transform = player.1.clone().with_rotation(rotation);
+    transform.translation = Vec3::new(bullet_position.x, bullet_position.y, 0.1);
+
+    server
+        .tx
+        .send(
+            applesauce::Bullet {
+                id: uuid::Uuid::new_v4().to_string(),
+                position: applesauce::Vec3::from(transform.translation).into(),
+                velocity: applesauce::Vec3::from(Vec2::new(1., 0.) * BULLET_SPEED).into(),
+                special_fields: Default::default(),
+            }
+            .into(),
+        )
+        .unwrap();
+
+    let bullet_position = player.1.translation.xy() + Vec2::new(-71.0, 0.);
+    let rotation = Quat::from_rotation_z(std::f32::consts::PI * -1.);
+    let mut transform = player.1.clone().with_rotation(rotation);
+    transform.translation = Vec3::new(bullet_position.x, bullet_position.y, 0.1);
+
+    server
+        .tx
+        .send(
+            applesauce::Bullet {
+                id: uuid::Uuid::new_v4().to_string(),
+                position: applesauce::Vec3::from(transform.translation).into(),
+                velocity: applesauce::Vec3::from(Vec2::new(-1., 0.) * BULLET_SPEED).into(),
+                special_fields: Default::default(),
+            }
+            .into(),
+        )
+        .unwrap();
+}
 
 fn read_network_messages_to_events(
     connection: ResMut<NetServer>,
@@ -300,60 +348,6 @@ fn despawn_things_that_need_despawning(
     for entity in entities.iter() {
         commands.entity(entity).despawn_recursive();
     }
-}
-
-#[allow(dead_code)]
-fn auto_fire(
-    mut main_players: Query<(&mut Player, &Transform), With<MainPlayer>>,
-    server: Res<NetServer>,
-    time: Res<Time>,
-) {
-    let player = main_players.get_single_mut().ok();
-    if player.is_none() {
-        return;
-    }
-    let mut player = player.unwrap();
-    player.0.fire_timeout.tick(time.delta());
-
-    if !player.0.fire_timeout.finished() {
-        return;
-    }
-
-    let bullet_position = player.1.translation.xy() + Vec2::new(71.0, 0.);
-    let rotation = Quat::from_rotation_z(std::f32::consts::PI);
-    let mut transform = player.1.clone().with_rotation(rotation);
-    transform.translation = Vec3::new(bullet_position.x, bullet_position.y, 0.1);
-
-    server
-        .tx
-        .send(
-            applesauce::Bullet {
-                id: uuid::Uuid::new_v4().to_string(),
-                position: applesauce::Vec3::from(transform.translation).into(),
-                velocity: applesauce::Vec3::from(Vec2::new(1., 0.) * BULLET_SPEED).into(),
-                special_fields: Default::default(),
-            }
-            .into(),
-        )
-        .unwrap();
-
-    let bullet_position = player.1.translation.xy() + Vec2::new(-71.0, 0.);
-    let rotation = Quat::from_rotation_z(std::f32::consts::PI * -1.);
-    let mut transform = player.1.clone().with_rotation(rotation);
-    transform.translation = Vec3::new(bullet_position.x, bullet_position.y, 0.1);
-
-    server
-        .tx
-        .send(
-            applesauce::Bullet {
-                id: uuid::Uuid::new_v4().to_string(),
-                position: applesauce::Vec3::from(transform.translation).into(),
-                velocity: applesauce::Vec3::from(Vec2::new(-1., 0.) * BULLET_SPEED).into(),
-                special_fields: Default::default(),
-            }
-            .into(),
-        )
-        .unwrap();
 }
 
 fn move_moveables(
