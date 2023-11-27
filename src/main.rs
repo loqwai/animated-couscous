@@ -15,6 +15,7 @@ use rand::prelude::*;
 use protos::generated::applesauce::{self};
 
 const BULLET_SPEED: f32 = 10.;
+const PLAYER_MOVE_SPEED: f32 = 4.;
 const FIRE_TIMEOUT: u64 = 500;
 
 fn main() {
@@ -627,11 +628,11 @@ fn move_moveables(
     mut right_movers: Query<&mut Transform, (With<MoveRight>, Without<MoveLeft>)>,
 ) {
     for mut left_mover in left_movers.iter_mut() {
-        left_mover.translation.x -= 2.;
+        left_mover.translation.x -= PLAYER_MOVE_SPEED;
     }
 
     for mut right_mover in right_movers.iter_mut() {
-        right_mover.translation.x += 2.;
+        right_mover.translation.x += PLAYER_MOVE_SPEED;
     }
 }
 
