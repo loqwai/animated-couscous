@@ -4,7 +4,7 @@ message Wrapper {
   string id = 1;
 
   oneof inner {
-    Player player_sync = 2;
+    Player player = 2;
     OutOfSync out_of_sync = 3;
     Bullet bullet = 4;
     Block block = 5;
