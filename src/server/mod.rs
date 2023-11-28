@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::protos::generated::applesauce::{self, OutOfSync, Wrapper};
 
+#[derive(Debug)]
 enum Event {
     Disconnect(TcpStream),
     Connect(TcpStream),
@@ -24,35 +25,49 @@ pub(crate) fn serve(
     let connect_addr = connect_addr.to_string();
     let listener = TcpListener::bind(listen_addr).unwrap();
 
-    let (tx, rx) = crossbeam_channel::unbounded::<Event>();
+    let (tx_bus, rx_bus) = crossbeam_channel::unbounded::<Event>();
     let (tx_input, rx_input) = crossbeam_channel::unbounded::<applesauce::Wrapper>();
     let (tx_output, rx_output) = crossbeam_channel::unbounded::<applesauce::Wrapper>();
 
-    let tx2 = tx.clone();
-    let rx2 = rx.clone();
-
     {
-        // Connect to remote server
-        let events_tx = tx.clone();
-        let stream = TcpStream::connect(connect_addr).unwrap();
-        thread::spawn(move || handle_connection(stream, events_tx));
+        // Listen for incoming connections
+        let tx_bus = tx_bus.clone();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let stream = stream.unwrap();
+                let tx_bus = tx_bus.clone();
+
+                thread::spawn(move || handle_connection(stream, tx_bus));
+            }
+        });
     }
 
-    thread::spawn(move || {
-        for stream in listener.incoming() {
-            let stream = stream.unwrap();
+    // {
+    //     let tx_bus = tx_bus.clone();
+    //     let stream = TcpStream::connect(connect_addr).unwrap();
+    //     thread::spawn(move || handle_connection(stream, tx_bus));
+    // }
+    {
+        // Connect to remote server
+        let mut stream = TcpStream::connect(connect_addr).unwrap();
 
-            let events_tx = tx.clone();
-
-            thread::spawn(move || handle_connection(stream, events_tx));
+        {
+            let stream = stream.try_clone().unwrap();
+            thread::spawn(move || handle_connection(stream, tx_bus));
         }
-    });
+        thread::spawn(move || {
+            for input in rx_input.iter() {
+                input.write_length_delimited_to_writer(&mut stream).unwrap();
+            }
+        });
+    }
 
+    // Manage the event bus
     thread::spawn(move || {
         let mut streams: Vec<TcpStream> = vec![];
         let mut proxied_events = LruCache::new(NonZeroUsize::new(100).unwrap());
 
-        for event in rx2.iter() {
+        for event in rx_bus.iter() {
             match event {
                 Event::Disconnect(stream) => {
                     // Remove stream from list. There is no opposite of `retain_mut` 😔
@@ -74,12 +89,6 @@ pub(crate) fn serve(
                     }
                 }
             }
-        }
-    });
-
-    thread::spawn(move || {
-        for input in rx_input.iter() {
-            tx2.send(Event::Message(input)).unwrap();
         }
     });
 
