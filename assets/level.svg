@@ -5,6 +5,6 @@
   <rect class="collidable" width="100px" height="20px" fill="#808080" x="200" y="150" />
   <rect class="collidable" width="20px" height="100px" fill="#808080" x="240" y="150" />
 
-  <circle id="player1Start" cx="50" cy="210" r="20" fill="red" />
-  <circle id="player2Start" cx="450" cy="210" r="20" fill="blue" />
+  <circle id="player1Spawn" cx="50" cy="210" r="20" fill="red" />
+  <circle id="player2Spawn" cx="450" cy="210" r="20" fill="blue" />
 </svg>

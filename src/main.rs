@@ -1,3 +1,4 @@
+mod level;
 mod protos;
 mod server;
 
@@ -9,8 +10,8 @@ use bevy::utils::HashSet;
 use bevy::window::WindowPlugin;
 use bevy::window::{PrimaryWindow, WindowResolution};
 use crossbeam_channel::{Receiver, Sender};
+use level::PlayerSpawn;
 use protos::generated::applesauce::wrapper::Inner;
-use rand::prelude::*;
 
 use protos::generated::applesauce::{self};
 
@@ -45,7 +46,7 @@ fn main() {
         .add_event::<BlockEvent>()
         .add_event::<DespawnPlayerEvent>()
         .add_event::<BulletSyncEvent>()
-        .add_systems(Startup, (setup, start_local_server))
+        .add_systems(Startup, (setup, start_local_server, level::load_level))
         .add_systems(
             Update,
             (
@@ -184,23 +185,9 @@ struct BroadcastStateEvent;
 #[derive(Event)]
 struct IAmOutOfSyncEvent;
 
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
+fn setup(mut commands: Commands) {
     commands.insert_resource(DeadList(HashSet::new()));
     commands.spawn(Camera2dBundle::default());
-
-    // Ground
-    commands.spawn(MaterialMesh2dBundle {
-        mesh: meshes
-            .add(shape::Quad::new(Vec2::new(1000., 1000.)).into())
-            .into(),
-        material: materials.add(ColorMaterial::from(Color::GRAY)),
-        transform: Transform::from_translation(Vec3::new(0., -500., -0.1)),
-        ..default()
-    });
 }
 
 fn start_local_server(mut commands: Commands) {
@@ -593,32 +580,28 @@ fn ensure_main_player(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     main_players: Query<Entity, With<MainPlayer>>,
+    player_spawns: Query<&PlayerSpawn>,
     server: Res<NetServer>,
 ) {
     if main_players.iter().count() == 0 {
         let id = uuid::Uuid::new_v4().to_string();
-        let mut rng = rand::thread_rng();
-        let mut x: f32 = rng.gen();
-        x *= 1000.;
-        x -= 500.;
-        let z: f32 = rng.gen();
-
-        let r = rng.gen();
-        let g = rng.gen();
-        let b = rng.gen();
+        let spawn = player_spawns
+            .iter()
+            .find(|s| s.player_number == 1)
+            .expect("Could not find player 1 spawn point");
 
         commands.spawn(MainPlayerBundle {
             main_player: MainPlayer,
             player_bundle: PlayerBundle {
                 player: Player {
                     id: id.clone(),
-                    color: Color::rgb(r, g, b),
+                    color: spawn.color,
                     fire_timeout: Timer::new(Duration::from_millis(FIRE_TIMEOUT), TimerMode::Once),
                 },
                 mesh_bundle: MaterialMesh2dBundle {
                     mesh: meshes.add(shape::Circle::new(50.).into()).into(),
-                    material: materials.add(ColorMaterial::from(Color::rgb(r, g, b))),
-                    transform: Transform::from_translation(Vec3::new(x, 50., z)),
+                    material: materials.add(ColorMaterial::from(spawn.color)),
+                    transform: Transform::from_translation(spawn.position),
                     ..default()
                 },
             },
@@ -629,8 +612,8 @@ fn ensure_main_player(
             .send(
                 applesauce::Player {
                     id: id.clone(),
-                    position: applesauce::Vec3::from(Vec3::new(x, 50., z)).into(),
-                    color: applesauce::Color::from(Color::rgb(r, g, b)).into(),
+                    position: applesauce::Vec3::from(spawn.position).into(),
+                    color: applesauce::Color::from(spawn.color).into(),
                     move_data: applesauce::MoveData::from((false, false)).into(),
                     special_fields: Default::default(),
                 }
