@@ -61,6 +61,7 @@ fn main() {
                 // Calculate next game state
                 bullet_hit_despawns_player_and_bullet,
                 bullet_moves_forward_system,
+                cleanup_zombies,
                 despawn_shield_on_ttl,
                 ensure_main_player,
                 move_moveables,
@@ -556,6 +557,19 @@ fn bullet_moves_forward_system(mut bullets: Query<(&Bullet, &mut Transform)>) {
     for (bullet, mut transform) in bullets.iter_mut() {
         transform.translation += bullet.velocity;
     }
+}
+
+fn cleanup_zombies(
+    mut commands: Commands,
+    players: Query<(Entity, &Player)>,
+    dead_list: Res<DeadList>,
+) {
+    players.iter().for_each(|(entity, player)| {
+        if !dead_list.0.contains(&player.id) {
+            return;
+        }
+        commands.entity(entity).insert(Despawn);
+    });
 }
 
 fn despawn_shield_on_ttl(
