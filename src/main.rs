@@ -18,6 +18,9 @@ const BULLET_SPEED: f32 = 10.;
 const PLAYER_MOVE_SPEED: f32 = 4.;
 const FIRE_TIMEOUT: u64 = 500;
 
+const WINDOW_WIDTH: f32 = 1000.;
+const WINDOW_HEIGHT: f32 = 300.;
+
 fn main() {
     let window_offset: i32 = std::env::var("WINDOW_OFFSET")
         .unwrap_or("0".to_string())
@@ -27,7 +30,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                resolution: WindowResolution::new(1000., 300.),
+                resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
                 position: WindowPosition::new(IVec2 {
                     x: 0,
                     y: window_offset,
