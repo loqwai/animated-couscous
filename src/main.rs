@@ -47,12 +47,8 @@ fn main() {
         .add_event::<BulletSyncEvent>()
         .add_systems(Startup, (setup, start_local_server))
         .add_systems(
-            Update,
+            PreUpdate,
             (
-                // optional debug systems
-                // auto_fire,
-                // debug_events,
-                //
                 // Update state from network events
                 read_network_messages_to_events,
                 handle_block_events,
@@ -60,7 +56,14 @@ fn main() {
                 handle_bullet_sync_events,
                 handle_despawn_player_events,
                 handle_player_sync_events,
-                //
+            ),
+        )
+        .add_systems(
+            Update,
+            (
+                // optional debug systems
+                // auto_fire,
+                // debug_events,
                 // Calculate next game state
                 bullet_hit_despawns_player_and_bullet,
                 bullet_moves_forward_system,
@@ -69,7 +72,12 @@ fn main() {
                 ensure_main_player,
                 move_moveables,
                 shield_blocks_bullets,
-                //
+            ),
+        )
+        .add_systems(
+            PostUpdate,
+            (
+                despawn_things_that_need_despawning,
                 // Write new state to network
                 write_i_am_out_of_sync_events_to_network,
                 write_keyboard_as_player_to_network,
@@ -77,7 +85,6 @@ fn main() {
                 write_mouse_right_clicks_as_blocks_to_network,
             ),
         )
-        .add_systems(PostUpdate, despawn_things_that_need_despawning)
         .run();
 }
 
@@ -708,28 +715,28 @@ fn write_keyboard_as_player_to_network_fallible(
     let (player_transform, player, color_handle) = main_players.get_single().ok()?;
     let color = colors.get(color_handle).unwrap().color;
 
-    // let a_just_pressed = keyboard_input.just_pressed(KeyCode::A);
-    // let d_just_pressed = keyboard_input.just_pressed(KeyCode::D);
-    // let a_just_released = keyboard_input.just_released(KeyCode::A);
-    // let d_just_released = keyboard_input.just_released(KeyCode::D);
+    let a_just_pressed = keyboard_input.just_pressed(KeyCode::A);
+    let d_just_pressed = keyboard_input.just_pressed(KeyCode::D);
+    let a_just_released = keyboard_input.just_released(KeyCode::A);
+    let d_just_released = keyboard_input.just_released(KeyCode::D);
     let a_pressed = keyboard_input.pressed(KeyCode::A);
     let d_pressed = keyboard_input.pressed(KeyCode::D);
 
-    // if a_just_pressed || d_just_pressed || a_just_released || d_just_released {
-    server
-        .tx
-        .send(
-            applesauce::Player {
-                id: player.id.clone(),
-                position: applesauce::Vec3::from(player_transform.translation).into(),
-                color: applesauce::Color::from(color).into(),
-                move_data: applesauce::MoveData::from((a_pressed, d_pressed)).into(),
-                special_fields: Default::default(),
-            }
-            .into(),
-        )
-        .unwrap();
-    // }
+    if a_just_pressed || d_just_pressed || a_just_released || d_just_released {
+        server
+            .tx
+            .send(
+                applesauce::Player {
+                    id: player.id.clone(),
+                    position: applesauce::Vec3::from(player_transform.translation).into(),
+                    color: applesauce::Color::from(color).into(),
+                    move_data: applesauce::MoveData::from((a_pressed, d_pressed)).into(),
+                    special_fields: Default::default(),
+                }
+                .into(),
+            )
+            .unwrap();
+    }
 
     None
 }
