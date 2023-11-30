@@ -15,7 +15,7 @@ use rand::prelude::*;
 use protos::generated::applesauce::{self};
 
 const BULLET_SPEED: f32 = 10.;
-const PLAYER_MOVE_SPEED: f32 = 4.;
+const PLAYER_MOVE_SPEED: f32 = 400.;
 const FIRE_TIMEOUT: u64 = 500;
 
 const WINDOW_WIDTH: f32 = 1000.;
@@ -650,13 +650,15 @@ fn ensure_main_player(
 fn move_moveables(
     mut left_movers: Query<&mut Transform, (With<MoveLeft>, Without<MoveRight>)>,
     mut right_movers: Query<&mut Transform, (With<MoveRight>, Without<MoveLeft>)>,
+    time: Res<Time>,
 ) {
     for mut left_mover in left_movers.iter_mut() {
-        left_mover.translation.x -= PLAYER_MOVE_SPEED;
+        // move the player left, but compensate for how much time has passed since the last update
+        left_mover.translation.x -= PLAYER_MOVE_SPEED * time.delta_seconds();
     }
 
     for mut right_mover in right_movers.iter_mut() {
-        right_mover.translation.x += PLAYER_MOVE_SPEED;
+        right_mover.translation.x += PLAYER_MOVE_SPEED * time.delta_seconds();
     }
 }
 
