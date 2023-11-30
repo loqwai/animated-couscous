@@ -35,6 +35,7 @@ fn main() {
                     x: 0,
                     y: window_offset,
                 }),
+
                 ..Default::default()
             }),
             ..Default::default()
@@ -695,6 +696,9 @@ fn write_keyboard_as_player_to_network(
     colors: Res<Assets<ColorMaterial>>,
     keyboard_input: Res<Input<KeyCode>>,
     server: Res<NetServer>,
+
+    left_movers: Query<Entity, (With<MoveLeft>, Without<MoveRight>, With<MainPlayer>)>,
+    right_movers: Query<Entity, (With<MoveRight>, Without<MoveLeft>, With<MainPlayer>)>,
 ) {
     write_keyboard_as_player_to_network_fallible(
         windows,
@@ -702,6 +706,8 @@ fn write_keyboard_as_player_to_network(
         colors,
         keyboard_input,
         server,
+        left_movers,
+        right_movers,
     );
 }
 
@@ -711,20 +717,22 @@ fn write_keyboard_as_player_to_network_fallible(
     colors: Res<Assets<ColorMaterial>>,
     keyboard_input: Res<Input<KeyCode>>,
     server: Res<NetServer>,
+
+    left_movers: Query<Entity, (With<MoveLeft>, Without<MoveRight>, With<MainPlayer>)>,
+    right_movers: Query<Entity, (With<MoveRight>, Without<MoveLeft>, With<MainPlayer>)>,
 ) -> Option<()> {
     windows.get_single().unwrap().cursor_position()?;
+
+    let player_moving_left = left_movers.get_single().is_ok();
+    let player_moving_right = right_movers.get_single().is_ok();
 
     let (player_transform, player, color_handle) = main_players.get_single().ok()?;
     let color = colors.get(color_handle).unwrap().color;
 
-    let a_just_pressed = keyboard_input.just_pressed(KeyCode::A);
-    let d_just_pressed = keyboard_input.just_pressed(KeyCode::D);
-    let a_just_released = keyboard_input.just_released(KeyCode::A);
-    let d_just_released = keyboard_input.just_released(KeyCode::D);
     let a_pressed = keyboard_input.pressed(KeyCode::A);
     let d_pressed = keyboard_input.pressed(KeyCode::D);
 
-    if a_just_pressed || d_just_pressed || a_just_released || d_just_released {
+    if a_pressed != player_moving_left || d_pressed != player_moving_right {
         server
             .tx
             .send(
