@@ -14,7 +14,7 @@ use rand::prelude::*;
 
 use protos::generated::applesauce::{self};
 
-const BULLET_SPEED: f32 = 10.;
+const BULLET_SPEED: f32 = 800.;
 const PLAYER_MOVE_SPEED: f32 = 400.;
 const FIRE_TIMEOUT: u64 = 500;
 
@@ -563,9 +563,9 @@ fn bullet_hit_despawns_player_and_bullet(
     }
 }
 
-fn bullet_moves_forward_system(mut bullets: Query<(&Bullet, &mut Transform)>) {
+fn bullet_moves_forward_system(mut bullets: Query<(&Bullet, &mut Transform)>, time: Res<Time>) {
     for (bullet, mut transform) in bullets.iter_mut() {
-        transform.translation += bullet.velocity;
+        transform.translation += bullet.velocity * time.delta_seconds();
     }
 }
 
