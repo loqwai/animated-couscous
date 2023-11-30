@@ -708,28 +708,28 @@ fn write_keyboard_as_player_to_network_fallible(
     let (player_transform, player, color_handle) = main_players.get_single().ok()?;
     let color = colors.get(color_handle).unwrap().color;
 
-    let a_just_pressed = keyboard_input.just_pressed(KeyCode::A);
-    let d_just_pressed = keyboard_input.just_pressed(KeyCode::D);
-    let a_just_released = keyboard_input.just_released(KeyCode::A);
-    let d_just_released = keyboard_input.just_released(KeyCode::D);
+    // let a_just_pressed = keyboard_input.just_pressed(KeyCode::A);
+    // let d_just_pressed = keyboard_input.just_pressed(KeyCode::D);
+    // let a_just_released = keyboard_input.just_released(KeyCode::A);
+    // let d_just_released = keyboard_input.just_released(KeyCode::D);
     let a_pressed = keyboard_input.pressed(KeyCode::A);
     let d_pressed = keyboard_input.pressed(KeyCode::D);
 
-    if a_just_pressed || d_just_pressed || a_just_released || d_just_released {
-        server
-            .tx
-            .send(
-                applesauce::Player {
-                    id: player.id.clone(),
-                    position: applesauce::Vec3::from(player_transform.translation).into(),
-                    color: applesauce::Color::from(color).into(),
-                    move_data: applesauce::MoveData::from((a_pressed, d_pressed)).into(),
-                    special_fields: Default::default(),
-                }
-                .into(),
-            )
-            .unwrap();
-    }
+    // if a_just_pressed || d_just_pressed || a_just_released || d_just_released {
+    server
+        .tx
+        .send(
+            applesauce::Player {
+                id: player.id.clone(),
+                position: applesauce::Vec3::from(player_transform.translation).into(),
+                color: applesauce::Color::from(color).into(),
+                move_data: applesauce::MoveData::from((a_pressed, d_pressed)).into(),
+                special_fields: Default::default(),
+            }
+            .into(),
+        )
+        .unwrap();
+    // }
 
     None
 }
