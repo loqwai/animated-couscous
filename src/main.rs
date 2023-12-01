@@ -15,9 +15,14 @@ use protos::generated::applesauce::wrapper::Inner;
 
 use protos::generated::applesauce::{self};
 
-const BULLET_SPEED: f32 = 10.;
-const PLAYER_MOVE_SPEED: f32 = 4.;
+const PLAYER_RADIUS: f32 = 50.;
+
+const BULLET_SPEED: f32 = 800.;
+const PLAYER_MOVE_SPEED: f32 = 400.;
 const FIRE_TIMEOUT: u64 = 500;
+const JUMP_AMOUNT: f32 = 500.;
+const GRAVITY: f32 = 3000.;
+const TERMINAL_VELOCITY: f32 = 1000.;
 
 const WINDOW_WIDTH: f32 = 1000.;
 const WINDOW_HEIGHT: f32 = 300.;
@@ -36,6 +41,7 @@ fn main() {
                     x: 0,
                     y: window_offset,
                 }),
+
                 ..Default::default()
             }),
             ..Default::default()
@@ -44,41 +50,53 @@ fn main() {
         .add_event::<IAmOutOfSyncEvent>()
         .add_event::<PlayerSyncEvent>()
         .add_event::<BlockEvent>()
+        .add_event::<JumpEvent>()
         .add_event::<DespawnPlayerEvent>()
         .add_event::<BulletSyncEvent>()
         .add_systems(Startup, (setup, start_local_server, level::load_level))
         .add_systems(
-            Update,
+            PreUpdate,
             (
-                // optional debug systems
-                // auto_fire,
-                // debug_events,
-                //
                 // Update state from network events
                 read_network_messages_to_events,
                 handle_block_events,
                 handle_broadcast_state_event,
                 handle_bullet_sync_events,
                 handle_despawn_player_events,
+                handle_jump_events,
                 handle_player_sync_events,
-                //
+            ),
+        )
+        .add_systems(
+            Update,
+            (
+                // optional debug systems
+                // auto_fire,
+                // debug_events,
                 // Calculate next game state
+                apply_velocity,
+                apply_velocity_gravity.after(apply_velocity),
                 bullet_hit_despawns_player_and_bullet,
                 bullet_moves_forward_system,
                 cleanup_zombies,
                 despawn_shield_on_ttl,
                 ensure_main_player,
-                move_moveables,
+                move_moveables.before(apply_velocity),
                 shield_blocks_bullets,
-                //
+            ),
+        )
+        .add_systems(
+            PostUpdate,
+            (
+                despawn_things_that_need_despawning,
                 // Write new state to network
                 write_i_am_out_of_sync_events_to_network,
                 write_keyboard_as_player_to_network,
                 write_mouse_left_clicks_as_bullets_to_network,
                 write_mouse_right_clicks_as_blocks_to_network,
+                write_space_as_jumps_to_network,
             ),
         )
-        .add_systems(PostUpdate, despawn_things_that_need_despawning)
         .run();
 }
 
@@ -98,6 +116,7 @@ struct MainPlayer;
 #[derive(Bundle)]
 struct PlayerBundle {
     player: Player,
+    velocity: Velocity,
     mesh_bundle: MaterialMesh2dBundle<ColorMaterial>,
 }
 
@@ -106,6 +125,9 @@ struct MainPlayerBundle {
     main_player: MainPlayer,
     player_bundle: PlayerBundle,
 }
+
+#[derive(Component)]
+struct Velocity(Vec3);
 
 #[derive(Component)]
 struct MoveLeft;
@@ -156,6 +178,11 @@ struct MoveData {
 
 #[derive(Event)]
 struct BlockEvent {
+    player_id: String,
+}
+
+#[derive(Event)]
+struct JumpEvent {
     player_id: String,
 }
 
@@ -289,6 +316,7 @@ fn read_network_messages_to_events(
     mut block_events: EventWriter<BlockEvent>,
     mut despawn_player_events: EventWriter<DespawnPlayerEvent>,
     mut bullet_sync_events: EventWriter<BulletSyncEvent>,
+    mut jump_events: EventWriter<JumpEvent>,
 ) {
     for input in connection.rx.try_iter() {
         match input.inner.unwrap() {
@@ -323,6 +351,9 @@ fn read_network_messages_to_events(
                     velocity: e.velocity.unwrap().into(),
                 });
             }
+            Inner::Jump(e) => jump_events.send(JumpEvent {
+                player_id: e.player_id,
+            }),
         }
     }
 }
@@ -469,6 +500,21 @@ fn handle_despawn_player_events(
     }
 }
 
+fn handle_jump_events(
+    mut jump_events: EventReader<JumpEvent>,
+    mut players: Query<(&Player, &mut Velocity)>,
+    mut i_am_out_of_sync_events: EventWriter<IAmOutOfSyncEvent>,
+) {
+    for event in jump_events.read() {
+        match players.iter_mut().find(|(p, _)| p.id == event.player_id) {
+            None => i_am_out_of_sync_events.send(IAmOutOfSyncEvent),
+            Some((_, mut velocity)) => {
+                velocity.0.y = JUMP_AMOUNT;
+            }
+        }
+    }
+}
+
 fn handle_player_sync_events(
     mut commands: Commands,
     mut events: EventReader<PlayerSyncEvent>,
@@ -500,8 +546,9 @@ fn handle_player_sync_events(
                             TimerMode::Once,
                         ),
                     },
+                    velocity: Velocity(Vec3::new(0., 0., 0.)),
                     mesh_bundle: MaterialMesh2dBundle {
-                        mesh: meshes.add(shape::Circle::new(50.).into()).into(),
+                        mesh: meshes.add(shape::Circle::new(PLAYER_RADIUS).into()).into(),
                         material: materials.add(ColorMaterial::from(event.color)),
                         transform: Transform::from_translation(event.position),
                         ..default()
@@ -521,6 +568,20 @@ fn handle_player_sync_events(
     }
 }
 
+fn apply_velocity(mut moveables: Query<(&mut Transform, &Velocity)>, time: Res<Time>) {
+    for (mut transform, velocity) in moveables.iter_mut() {
+        transform.translation += time.delta_seconds() * velocity.0;
+        transform.translation.y = transform.translation.y.max(PLAYER_RADIUS);
+    }
+}
+
+fn apply_velocity_gravity(mut velocities: Query<&mut Velocity>, time: Res<Time>) {
+    for mut velocity in velocities.iter_mut() {
+        velocity.0.y -= time.delta_seconds() * GRAVITY;
+        velocity.0.y = velocity.0.y.max(-TERMINAL_VELOCITY);
+    }
+}
+
 fn bullet_hit_despawns_player_and_bullet(
     mut commands: Commands,
     bullets: Query<(Entity, &Transform, &Bullet), With<Bullet>>,
@@ -530,7 +591,7 @@ fn bullet_hit_despawns_player_and_bullet(
 ) {
     for bullet in bullets.iter() {
         for player in players.iter_mut() {
-            if bullet.1.translation.distance(player.1.translation) < 50. {
+            if bullet.1.translation.distance(player.1.translation) < PLAYER_RADIUS {
                 commands.entity(bullet.0).insert(Despawn);
                 dead_list.0.insert(bullet.2.id.clone());
 
@@ -543,9 +604,9 @@ fn bullet_hit_despawns_player_and_bullet(
     }
 }
 
-fn bullet_moves_forward_system(mut bullets: Query<(&Bullet, &mut Transform)>) {
+fn bullet_moves_forward_system(mut bullets: Query<(&Bullet, &mut Transform)>, time: Res<Time>) {
     for (bullet, mut transform) in bullets.iter_mut() {
-        transform.translation += bullet.velocity;
+        transform.translation += bullet.velocity * time.delta_seconds();
     }
 }
 
@@ -598,8 +659,9 @@ fn ensure_main_player(
                     color: spawn.color,
                     fire_timeout: Timer::new(Duration::from_millis(FIRE_TIMEOUT), TimerMode::Once),
                 },
+                velocity: Velocity(Vec3::new(0., 0., 0.)),
                 mesh_bundle: MaterialMesh2dBundle {
-                    mesh: meshes.add(shape::Circle::new(50.).into()).into(),
+                    mesh: meshes.add(shape::Circle::new(PLAYER_RADIUS).into()).into(),
                     material: materials.add(ColorMaterial::from(spawn.color)),
                     transform: Transform::from_translation(spawn.position),
                     ..default()
@@ -626,13 +688,15 @@ fn ensure_main_player(
 fn move_moveables(
     mut left_movers: Query<&mut Transform, (With<MoveLeft>, Without<MoveRight>)>,
     mut right_movers: Query<&mut Transform, (With<MoveRight>, Without<MoveLeft>)>,
+    time: Res<Time>,
 ) {
     for mut left_mover in left_movers.iter_mut() {
-        left_mover.translation.x -= PLAYER_MOVE_SPEED;
+        // move the player left, but compensate for how much time has passed since the last update
+        left_mover.translation.x -= PLAYER_MOVE_SPEED * time.delta_seconds();
     }
 
     for mut right_mover in right_movers.iter_mut() {
-        right_mover.translation.x += PLAYER_MOVE_SPEED;
+        right_mover.translation.x += PLAYER_MOVE_SPEED * time.delta_seconds();
     }
 }
 
@@ -669,6 +733,9 @@ fn write_keyboard_as_player_to_network(
     colors: Res<Assets<ColorMaterial>>,
     keyboard_input: Res<Input<KeyCode>>,
     server: Res<NetServer>,
+
+    left_movers: Query<Entity, (With<MoveLeft>, Without<MoveRight>, With<MainPlayer>)>,
+    right_movers: Query<Entity, (With<MoveRight>, Without<MoveLeft>, With<MainPlayer>)>,
 ) {
     write_keyboard_as_player_to_network_fallible(
         windows,
@@ -676,6 +743,8 @@ fn write_keyboard_as_player_to_network(
         colors,
         keyboard_input,
         server,
+        left_movers,
+        right_movers,
     );
 }
 
@@ -685,20 +754,22 @@ fn write_keyboard_as_player_to_network_fallible(
     colors: Res<Assets<ColorMaterial>>,
     keyboard_input: Res<Input<KeyCode>>,
     server: Res<NetServer>,
+
+    left_movers: Query<Entity, (With<MoveLeft>, Without<MoveRight>, With<MainPlayer>)>,
+    right_movers: Query<Entity, (With<MoveRight>, Without<MoveLeft>, With<MainPlayer>)>,
 ) -> Option<()> {
     windows.get_single().unwrap().cursor_position()?;
+
+    let player_moving_left = left_movers.get_single().is_ok();
+    let player_moving_right = right_movers.get_single().is_ok();
 
     let (player_transform, player, color_handle) = main_players.get_single().ok()?;
     let color = colors.get(color_handle).unwrap().color;
 
-    let a_just_pressed = keyboard_input.just_pressed(KeyCode::A);
-    let d_just_pressed = keyboard_input.just_pressed(KeyCode::D);
-    let a_just_released = keyboard_input.just_released(KeyCode::A);
-    let d_just_released = keyboard_input.just_released(KeyCode::D);
     let a_pressed = keyboard_input.pressed(KeyCode::A);
     let d_pressed = keyboard_input.pressed(KeyCode::D);
 
-    if a_just_pressed || d_just_pressed || a_just_released || d_just_released {
+    if a_pressed != player_moving_left || d_pressed != player_moving_right {
         server
             .tx
             .send(
@@ -766,10 +837,9 @@ fn write_mouse_left_clicks_as_bullets_to_network_fallible(
     let mut transform = player.1.clone().with_rotation(rotation);
 
     // offset the bullet so they don't shoot themselves
-    let player_radius = 50.;
     let bullet_half_length = 20.;
     let fudge_factor = 1.;
-    let offset = player_radius + bullet_half_length + fudge_factor;
+    let offset = PLAYER_RADIUS + bullet_half_length + fudge_factor;
     let bullet_position = transform.translation.xy() + aim.clamp_length_min(offset);
 
     transform.translation = Vec3::new(bullet_position.x, bullet_position.y, 0.1);
@@ -817,6 +887,38 @@ fn write_mouse_right_clicks_as_blocks_to_network_fallible(
         .tx
         .send(
             applesauce::Block {
+                player_id: player.id.clone(),
+                special_fields: Default::default(),
+            }
+            .into(),
+        )
+        .unwrap();
+
+    None
+}
+
+fn write_space_as_jumps_to_network(
+    keyboard_input: Res<Input<KeyCode>>,
+    server: Res<NetServer>,
+    main_players: Query<&Player, With<MainPlayer>>,
+) {
+    write_space_as_jumps_to_network_fallible(keyboard_input, server, main_players);
+}
+
+fn write_space_as_jumps_to_network_fallible(
+    keyboard_input: Res<Input<KeyCode>>,
+    server: Res<NetServer>,
+    main_players: Query<&Player, With<MainPlayer>>,
+) -> Option<()> {
+    if !keyboard_input.pressed(KeyCode::Space) {
+        return None;
+    }
+    let player = main_players.get_single().ok()?;
+
+    server
+        .tx
+        .send(
+            applesauce::Jump {
                 player_id: player.id.clone(),
                 special_fields: Default::default(),
             }

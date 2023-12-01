@@ -9,6 +9,7 @@ message Wrapper {
     Bullet bullet = 4;
     Block block = 5;
     DespawnPlayer despawn_player = 6;
+    Jump jump = 7;
   }
 }
 
@@ -50,4 +51,8 @@ message Bullet {
   string id = 1;
   Vec3 position = 2;
   Vec3 velocity = 3;
+}
+
+message Jump {
+  string player_id = 1;
 }

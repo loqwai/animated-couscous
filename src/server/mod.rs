@@ -65,7 +65,7 @@ pub(crate) fn serve(
     // Manage the event bus
     thread::spawn(move || {
         let mut streams: Vec<TcpStream> = vec![];
-        let mut proxied_events = LruCache::new(NonZeroUsize::new(100).unwrap());
+        let mut proxied_events = LruCache::new(NonZeroUsize::new(1000).unwrap());
 
         for event in rx_bus.iter() {
             match event {
