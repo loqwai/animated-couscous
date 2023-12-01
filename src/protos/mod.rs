@@ -86,47 +86,47 @@ impl From<String> for generated::applesauce::DespawnPlayer {
     }
 }
 
-impl Into<generated::applesauce::Wrapper> for generated::applesauce::DespawnPlayer {
-    fn into(self) -> generated::applesauce::Wrapper {
-        generated::applesauce::wrapper::Inner::DespawnPlayer(self).into()
+impl From<generated::applesauce::DespawnPlayer> for generated::applesauce::Wrapper {
+    fn from(value: generated::applesauce::DespawnPlayer) -> Self {
+        generated::applesauce::wrapper::Inner::DespawnPlayer(value).into()
     }
 }
 
-impl Into<generated::applesauce::Wrapper> for generated::applesauce::Bullet {
-    fn into(self) -> generated::applesauce::Wrapper {
-        generated::applesauce::wrapper::Inner::Bullet(self).into()
+impl From<generated::applesauce::Bullet> for generated::applesauce::Wrapper {
+    fn from(value: generated::applesauce::Bullet) -> Self {
+        generated::applesauce::wrapper::Inner::Bullet(value).into()
     }
 }
 
-impl Into<generated::applesauce::Wrapper> for generated::applesauce::Block {
-    fn into(self) -> generated::applesauce::Wrapper {
-        generated::applesauce::wrapper::Inner::Block(self).into()
+impl From<generated::applesauce::Block> for generated::applesauce::Wrapper {
+    fn from(value: generated::applesauce::Block) -> Self {
+        generated::applesauce::wrapper::Inner::Block(value).into()
     }
 }
 
-impl Into<generated::applesauce::Wrapper> for generated::applesauce::Player {
-    fn into(self) -> generated::applesauce::Wrapper {
-        generated::applesauce::wrapper::Inner::Player(self).into()
+impl From<generated::applesauce::Player> for generated::applesauce::Wrapper {
+    fn from(value: generated::applesauce::Player) -> Self {
+        generated::applesauce::wrapper::Inner::Player(value).into()
     }
 }
 
-impl Into<generated::applesauce::Wrapper> for generated::applesauce::OutOfSync {
-    fn into(self) -> generated::applesauce::Wrapper {
-        generated::applesauce::wrapper::Inner::OutOfSync(self).into()
+impl From<generated::applesauce::OutOfSync> for generated::applesauce::Wrapper {
+    fn from(value: generated::applesauce::OutOfSync) -> Self {
+        generated::applesauce::wrapper::Inner::OutOfSync(value).into()
     }
 }
 
-impl Into<generated::applesauce::Wrapper> for generated::applesauce::Jump {
-    fn into(self) -> generated::applesauce::Wrapper {
-        generated::applesauce::wrapper::Inner::Jump(self).into()
+impl From<generated::applesauce::Jump> for generated::applesauce::Wrapper {
+    fn from(value: generated::applesauce::Jump) -> Self {
+        generated::applesauce::wrapper::Inner::Jump(value).into()
     }
 }
 
-impl Into<generated::applesauce::Wrapper> for generated::applesauce::wrapper::Inner {
-    fn into(self) -> generated::applesauce::Wrapper {
+impl From<generated::applesauce::wrapper::Inner> for generated::applesauce::Wrapper {
+    fn from(value: generated::applesauce::wrapper::Inner) -> Self {
         generated::applesauce::Wrapper {
             id: uuid::Uuid::new_v4().to_string(),
-            inner: Some(self),
+            inner: Some(value),
             special_fields: Default::default(),
         }
     }
