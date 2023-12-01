@@ -74,14 +74,14 @@ fn main() {
                 // auto_fire,
                 // debug_events,
                 // Calculate next game state
+                move_moveables.before(apply_velocity),
+                apply_velocity_gravity.before(apply_velocity),
                 apply_velocity,
-                apply_velocity_gravity.after(apply_velocity),
                 bullet_hit_despawns_player_and_bullet,
                 bullet_moves_forward_system,
                 cleanup_zombies,
                 despawn_shield_on_ttl,
                 ensure_main_player,
-                move_moveables.before(apply_velocity),
                 shield_blocks_bullets,
             ),
         )
@@ -686,17 +686,20 @@ fn ensure_main_player(
 }
 
 fn move_moveables(
-    mut left_movers: Query<&mut Transform, (With<MoveLeft>, Without<MoveRight>)>,
-    mut right_movers: Query<&mut Transform, (With<MoveRight>, Without<MoveLeft>)>,
-    time: Res<Time>,
+    mut left_movers: Query<&mut Velocity, (With<MoveLeft>, Without<MoveRight>)>,
+    mut right_movers: Query<&mut Velocity, (With<MoveRight>, Without<MoveLeft>)>,
+    mut non_movers: Query<&mut Velocity, (Without<MoveLeft>, Without<MoveRight>)>,
 ) {
     for mut left_mover in left_movers.iter_mut() {
-        // move the player left, but compensate for how much time has passed since the last update
-        left_mover.translation.x -= PLAYER_MOVE_SPEED * time.delta_seconds();
+        left_mover.0.x = -PLAYER_MOVE_SPEED;
     }
 
     for mut right_mover in right_movers.iter_mut() {
-        right_mover.translation.x += PLAYER_MOVE_SPEED * time.delta_seconds();
+        right_mover.0.x = PLAYER_MOVE_SPEED;
+    }
+
+    for mut non_mover in non_movers.iter_mut() {
+        non_mover.0.x = 0.;
     }
 }
 
