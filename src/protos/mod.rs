@@ -116,6 +116,12 @@ impl Into<generated::applesauce::Wrapper> for generated::applesauce::OutOfSync {
     }
 }
 
+impl Into<generated::applesauce::Wrapper> for generated::applesauce::Jump {
+    fn into(self) -> generated::applesauce::Wrapper {
+        generated::applesauce::wrapper::Inner::Jump(self).into()
+    }
+}
+
 impl Into<generated::applesauce::Wrapper> for generated::applesauce::wrapper::Inner {
     fn into(self) -> generated::applesauce::Wrapper {
         generated::applesauce::Wrapper {
