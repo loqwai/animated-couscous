@@ -122,11 +122,11 @@ impl Into<generated::applesauce::Wrapper> for generated::applesauce::Jump {
     }
 }
 
-impl Into<generated::applesauce::Wrapper> for generated::applesauce::wrapper::Inner {
-    fn into(self) -> generated::applesauce::Wrapper {
+impl From<generated::applesauce::wrapper::Inner> for generated::applesauce::Wrapper {
+    fn from(value: generated::applesauce::wrapper::Inner) -> Self {
         generated::applesauce::Wrapper {
             id: uuid::Uuid::new_v4().to_string(),
-            inner: Some(self),
+            inner: Some(value),
             special_fields: Default::default(),
         }
     }
