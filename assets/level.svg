@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="500" height="250" viewBox="0 0 500 250">
-  <rect id="background" width="100%" height="100%" fill="#1b1b1b" x="0" y="0" />
+  <rect id="background" width="500" height="250" fill="#1b1b1b" x="0" y="0" />
 
-  <rect class="collidable" width="100%" height="20px" fill="#808080" x="0" y="230" />
-  <rect class="collidable" width="100px" height="20px" fill="#808080" x="200" y="150" />
-  <rect class="collidable" width="20px" height="100px" fill="#808080" x="240" y="150" />
+  <rect class="collidable" width="500" height="20" fill="#808080" x="0" y="230" />
+  <rect class="collidable" width="100" height="20" fill="#808080" x="200" y="150" />
+  <rect class="collidable" width="20" height="100" fill="#808080" x="240" y="150" />
 
   <circle id="player1Spawn" cx="50" cy="210" r="20" fill="red" />
   <circle id="player2Spawn" cx="450" cy="210" r="20" fill="blue" />

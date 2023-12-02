@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate derive_error;
+
 mod level;
 mod protos;
 mod server;
