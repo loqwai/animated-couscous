@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
 
-const LEVEL_PATH: &str = "assets/level.svg";
+// const LEVEL_PATH: &str = "assets/level.svg";
+const LEVEL_PATH: &str = "assets/plain.svg";
 
 const PLAYER_SPAWN_IDS: [&str; 2] = ["player1Spawn", "player2Spawn"];
 
@@ -14,61 +15,33 @@ pub(crate) struct PlayerSpawn {
     pub color: Color,
 }
 
+#[derive(Debug, Error)]
+pub(crate) enum LoadLevelError {
+    HandleEmptyTagError(HandleEmptyTagError),
+}
+
 pub(crate) fn load_level(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+) -> Result<(), LoadLevelError> {
     let mut content = String::new();
     let parser = svg::open(LEVEL_PATH, &mut content).unwrap();
     for event in parser {
         match event {
             svg::parser::Event::Error(e) => panic!("Error parsing SVG: {:?}", e),
-            svg::parser::Event::Tag(path, tag_type, attributes) => {
-                // ignore everything but empty tags for now. Non empty tags are containers, like
-                // <g> and <svg>. We'll want to handle them at some point, but not yet.
-                match tag_type {
-                    svg::node::element::tag::Type::Empty => {}
-                    _ => continue,
+            svg::parser::Event::Tag(path, tag_type, attributes) => match tag_type {
+                svg::node::element::tag::Type::Start => handle_start_tag(path, &attributes),
+                svg::node::element::tag::Type::Empty => {
+                    handle_empty_tag(commands, meshes, materials, path, &attributes)?
                 }
-
-                // player spawns are special, so handle them first
-                if let Some(id) = attributes.get("id") {
-                    if PLAYER_SPAWN_IDS.contains(&id.to_string().as_str()) {
-                        handle_player_spawn(&mut commands, id, path, &attributes);
-                        continue;
-                    }
-                }
-
-                match path {
-                    "rect" => spawn_rect(&mut commands, &mut meshes, &mut materials, &attributes),
-                    _ => {
-                        println!(
-                            "ignored path {}, type: {:?}, id: {}, class: {}",
-                            path,
-                            tag_type,
-                            get_string_value(&attributes, "id"),
-                            get_string_value(&attributes, "class")
-                        );
-                    }
-                };
-
-                // if let Some(classes) = attributes.get("class") {
-                //     let classes = classes.to_string();
-                //     let classes: Vec<&str> = classes.split_whitespace().collect();
-                // }
-
-                // println!(
-                //     "Found ignored tag {}, type: {:?}, id: {}, class: {}",
-                //     path,
-                //     tag_type,
-                //     get_string_value(&attributes, "id"),
-                //     get_string_value(&attributes, "class"),
-                // );
-            }
+                _ => continue,
+            },
             _ => {}
         }
     }
+
+    Ok(())
 
     // commands.spawn(MaterialMesh2dBundle {
     //     mesh: meshes
@@ -78,6 +51,64 @@ pub(crate) fn load_level(
     //     transform: Transform::from_translation(Vec3::new(0., -500., -0.1)),
     //     ..default()
     // });
+}
+
+fn handle_start_tag(path: &str, attributes: &HashMap<String, svg::node::Value>) {
+    println!(
+        "start tag {}, id: {}, class: {}",
+        path,
+        get_string_value(&attributes, "id"),
+        get_string_value(&attributes, "class")
+    );
+
+    match path {
+        "svg" => {
+            handle_svg_open();
+        }
+        _ => {
+            println!(
+                "ignored path {}, id: {}, class: {}",
+                path,
+                get_string_value(&attributes, "id"),
+                get_string_value(&attributes, "class")
+            );
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum HandleEmptyTagError {
+    ParseRectError(ParseRectError),
+}
+
+fn handle_empty_tag(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    path: &str,
+    attributes: &HashMap<String, svg::node::Value>,
+) -> Result<(), HandleEmptyTagError> {
+    // player spawns are special, so handle them first
+    if let Some(id) = attributes.get("id") {
+        if PLAYER_SPAWN_IDS.contains(&id.to_string().as_str()) {
+            handle_player_spawn(commands, id, path, &attributes);
+            return Ok(());
+        }
+    }
+
+    match path {
+        "rect" => handle_rect(commands, meshes, materials, &attributes)?,
+        _ => {
+            println!(
+                "ignored path {}, id: {}, class: {}",
+                path,
+                get_string_value(&attributes, "id"),
+                get_string_value(&attributes, "class")
+            );
+        }
+    };
+
+    Ok(())
 }
 
 fn get_string_value(attributes: &HashMap<String, svg::node::Value>, key: &str) -> String {
@@ -135,12 +166,16 @@ fn handle_player_spawn(
     });
 }
 
-fn spawn_rect(
+fn handle_svg_open() {
+    println!("svg open");
+}
+
+fn handle_rect(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
     attributes: &HashMap<String, svg::node::Value>,
-) {
+) -> Result<(), ParseRectError> {
     let properties = parse_rect_properties(attributes);
 
     if let Err(e) = properties {
@@ -148,10 +183,10 @@ fn spawn_rect(
             "Ignoring rect with invalid properties: {}, {:?}",
             e, attributes
         );
-        return;
+        return Ok(());
     }
 
-    let (x, y, width, height) = properties.unwrap();
+    let (x, y, width, height) = properties?;
 
     commands.spawn(MaterialMesh2dBundle {
         mesh: meshes
@@ -161,10 +196,12 @@ fn spawn_rect(
         transform: Transform::from_translation(Vec3::new(x, y, -0.1)),
         ..default()
     });
+
+    Ok(())
 }
 
 #[derive(Debug, Error)]
-enum ParseRectError {
+pub(crate) enum ParseRectError {
     /// Only numeric values allowed for "x". Percentages are not yet supported
     InvalidX,
     /// Only numeric values allowed for "y". Percentages are not yet supported

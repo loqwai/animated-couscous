@@ -56,7 +56,7 @@ fn main() {
         .add_event::<JumpEvent>()
         .add_event::<DespawnPlayerEvent>()
         .add_event::<BulletSyncEvent>()
-        .add_systems(Startup, (setup, start_local_server, level::load_level))
+        .add_systems(Startup, (setup, start_local_server, load_level))
         .add_systems(
             PreUpdate,
             (
@@ -227,6 +227,14 @@ fn start_local_server(mut commands: Commands) {
     let (tx, rx) = server::serve(&listen_addr, &connect_addr);
 
     commands.insert_resource(NetServer { tx, rx });
+}
+
+fn load_level(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    level::load_level(&mut commands, &mut meshes, &mut materials).unwrap();
 }
 
 #[allow(dead_code)]
