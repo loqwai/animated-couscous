@@ -230,11 +230,11 @@ fn start_local_server(mut commands: Commands) {
 }
 
 fn load_level(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    commands: Commands,
+    meshes: ResMut<Assets<Mesh>>,
+    materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    level::load_level(&mut commands, &mut meshes, &mut materials).unwrap();
+    level::load_level(commands, meshes, materials).unwrap();
 }
 
 #[allow(dead_code)]
