@@ -1,8 +1,12 @@
+mod view_box;
+
 use std::collections::HashMap;
 
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy_inspector_egui::egui::TextBuffer;
+
+use self::view_box::ViewBox;
 
 // const LEVEL_PATH: &str = "assets/level.svg";
 const LEVEL_PATH: &str = "assets/plain.svg";
@@ -19,6 +23,7 @@ pub(crate) struct PlayerSpawn {
 #[derive(Debug, Error)]
 pub(crate) enum LoadLevelError {
     HandleEmptyTagError(HandleEmptyTagError),
+    HandleStartTagError(HandleStartTagError),
 }
 
 pub(crate) fn load_level<'a>(
@@ -34,6 +39,9 @@ struct Loader<'a> {
     commands: Commands<'a, 'a>,
     meshes: ResMut<'a, Assets<Mesh>>,
     materials: ResMut<'a, Assets<ColorMaterial>>,
+    width: Option<f32>,
+    height: Option<f32>,
+    view_box: Option<ViewBox>,
 }
 
 impl<'a> Loader<'a> {
@@ -46,6 +54,9 @@ impl<'a> Loader<'a> {
             commands,
             meshes,
             materials,
+            width: None,
+            height: None,
+            view_box: None,
         }
     }
 
@@ -57,7 +68,7 @@ impl<'a> Loader<'a> {
                 svg::parser::Event::Error(e) => panic!("Error parsing SVG: {:?}", e),
                 svg::parser::Event::Tag(path, tag_type, attributes) => match tag_type {
                     svg::node::element::tag::Type::Start => {
-                        self.handle_start_tag(path, &attributes)
+                        self.handle_start_tag(path, &attributes)?
                     }
                     svg::node::element::tag::Type::Empty => {
                         self.handle_empty_tag(path, &attributes)?
@@ -70,11 +81,13 @@ impl<'a> Loader<'a> {
         Ok(())
     }
 
-    fn handle_start_tag(self: &Self, path: &str, attributes: &HashMap<String, svg::node::Value>) {
+    fn handle_start_tag(
+        self: &mut Self,
+        path: &str,
+        attributes: &HashMap<String, svg::node::Value>,
+    ) -> Result<(), HandleStartTagError> {
         match path {
-            "svg" => {
-                self.handle_svg_open();
-            }
+            "svg" => self.handle_svg_open(attributes)?,
             _ => {
                 println!(
                     "ignored path {}, id: {}, class: {}",
@@ -84,10 +97,8 @@ impl<'a> Loader<'a> {
                 );
             }
         }
-    }
 
-    fn handle_svg_open(self: &Self) {
-        println!("svg open");
+        Ok(())
     }
 
     fn handle_empty_tag(
@@ -118,11 +129,44 @@ impl<'a> Loader<'a> {
         Ok(())
     }
 
+    fn handle_svg_open(
+        self: &mut Self,
+        attributes: &HashMap<String, svg::node::Value>,
+    ) -> Result<(), HandleSvgOpenError> {
+        let width: f32 = attributes
+            .get("width")
+            .unwrap_or(&svg::node::Value::from("0"))
+            .parse()
+            .or(Err(HandleSvgOpenError::InvalidWidth))?;
+
+        let height: f32 = attributes
+            .get("height")
+            .unwrap_or(&svg::node::Value::from("0"))
+            .parse()
+            .or(Err(HandleSvgOpenError::InvalidHeight))?;
+
+        let view_box: ViewBox = attributes
+            .get("viewBox")
+            .ok_or(HandleSvgOpenError::MissingViewBox)?
+            .parse()?;
+
+        self.width = Some(width);
+        self.height = Some(height);
+        self.view_box = Some(view_box);
+
+        Ok(())
+    }
+
     fn handle_rect(
         self: &mut Self,
         attributes: &HashMap<String, svg::node::Value>,
-    ) -> Result<(), ParseRectError> {
+    ) -> Result<(), HandleRectError> {
         let (x, y, width, height) = parse_rect_properties(attributes)?;
+
+        let x = self.adjusted_x(x)?;
+        let y = self.adjusted_y(y)?;
+        let width = self.adjusted_x(width)?;
+        let height = self.adjusted_y(height)?;
 
         self.commands.spawn(MaterialMesh2dBundle {
             mesh: self
@@ -184,11 +228,51 @@ impl<'a> Loader<'a> {
             color,
         });
     }
+
+    fn adjusted_x(self: &Self, x: f32) -> Result<f32, AdjustmentError> {
+        let view_box = self.view_box.ok_or(AdjustmentError::MissingViewBox)?;
+        let width = self.width.ok_or(AdjustmentError::MissingWidth)?;
+
+        let x = x - view_box.x;
+        let x = x / view_box.width;
+        let x = x * width;
+
+        Ok(x)
+    }
+
+    fn adjusted_y(self: &Self, y: f32) -> Result<f32, AdjustmentError> {
+        let view_box = self.view_box.ok_or(AdjustmentError::MissingViewBox)?;
+        let height = self.width.ok_or(AdjustmentError::MissingHeight)?;
+
+        let y = y - view_box.y;
+        let y = y / view_box.height;
+        let y = y * height;
+
+        Ok(y)
+    }
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum HandleStartTagError {
+    HandleSvgOpenError(HandleSvgOpenError),
 }
 
 #[derive(Debug, Error)]
 pub(crate) enum HandleEmptyTagError {
+    HandleRectError(HandleRectError),
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum HandleRectError {
     ParseRectError(ParseRectError),
+    AdjustmentError(AdjustmentError),
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum AdjustmentError {
+    MissingViewBox,
+    MissingWidth,
+    MissingHeight,
 }
 
 fn get_string_debug_value(attributes: &HashMap<String, svg::node::Value>, key: &str) -> String {
@@ -196,6 +280,18 @@ fn get_string_debug_value(attributes: &HashMap<String, svg::node::Value>, key: &
         Some(s) => s.to_string(),
         _ => return "<none>".to_string(),
     }
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum HandleSvgOpenError {
+    /// Only numeric values allowed for "height". Percentages are not yet supported
+    InvalidWidth,
+    /// Only numeric values allowed for "width". Percentages are not yet supported
+    InvalidHeight,
+    /// viewBox attribute is required
+    MissingViewBox,
+    /// viewBox attribute is invalid
+    InvalidViewBox(view_box::ParseViewBoxError),
 }
 
 #[derive(Debug, Error)]
