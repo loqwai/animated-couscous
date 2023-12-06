@@ -12,12 +12,14 @@ use self::view_box::ViewBox;
 const LEVEL_PATH: &str = "assets/plain.svg";
 
 const PLAYER_SPAWN_IDS: [&str; 2] = ["player1Spawn", "player2Spawn"];
+const Z_SEPARATION: f32 = 0.01;
 
 #[derive(Component)]
 pub(crate) struct PlayerSpawn {
     pub player_number: u8,
     pub position: Vec3,
     pub color: Color,
+    pub radius: f32,
 }
 
 #[derive(Debug, Error)]
@@ -30,8 +32,10 @@ pub(crate) fn load_level<'a>(
     commands: Commands<'a, 'a>,
     meshes: ResMut<'a, Assets<Mesh>>,
     materials: ResMut<'a, Assets<ColorMaterial>>,
+    window_width: f32,
+    window_height: f32,
 ) -> Result<(), LoadLevelError> {
-    let mut loader = Loader::new(commands, meshes, materials);
+    let mut loader = Loader::new(commands, meshes, materials, window_width, window_height);
     loader.load_level(LEVEL_PATH.as_str())
 }
 
@@ -39,8 +43,9 @@ struct Loader<'a> {
     commands: Commands<'a, 'a>,
     meshes: ResMut<'a, Assets<Mesh>>,
     materials: ResMut<'a, Assets<ColorMaterial>>,
-    width: Option<f32>,
-    height: Option<f32>,
+    window_width: f32,
+    window_height: f32,
+    current_z: f32,
     view_box: Option<ViewBox>,
 }
 
@@ -49,13 +54,16 @@ impl<'a> Loader<'a> {
         commands: Commands<'a, 'a>,
         meshes: ResMut<'a, Assets<Mesh>>,
         materials: ResMut<'a, Assets<ColorMaterial>>,
+        window_width: f32,
+        window_height: f32,
     ) -> Self {
         Loader {
             commands,
             meshes,
             materials,
-            width: None,
-            height: None,
+            window_width,
+            window_height,
+            current_z: 0.0,
             view_box: None,
         }
     }
@@ -109,7 +117,7 @@ impl<'a> Loader<'a> {
         // player spawns are special, so handle them first
         if let Some(id) = attributes.get("id") {
             if PLAYER_SPAWN_IDS.contains(&id.to_string().as_str()) {
-                self.handle_player_spawn(id, path, &attributes);
+                self.handle_player_spawn(id, path, &attributes)?;
                 return Ok(());
             }
         }
@@ -133,25 +141,11 @@ impl<'a> Loader<'a> {
         self: &mut Self,
         attributes: &HashMap<String, svg::node::Value>,
     ) -> Result<(), HandleSvgOpenError> {
-        let width: f32 = attributes
-            .get("width")
-            .unwrap_or(&svg::node::Value::from("0"))
-            .parse()
-            .or(Err(HandleSvgOpenError::InvalidWidth))?;
-
-        let height: f32 = attributes
-            .get("height")
-            .unwrap_or(&svg::node::Value::from("0"))
-            .parse()
-            .or(Err(HandleSvgOpenError::InvalidHeight))?;
-
         let view_box: ViewBox = attributes
             .get("viewBox")
             .ok_or(HandleSvgOpenError::MissingViewBox)?
             .parse()?;
 
-        self.width = Some(width);
-        self.height = Some(height);
         self.view_box = Some(view_box);
 
         Ok(())
@@ -163,18 +157,29 @@ impl<'a> Loader<'a> {
     ) -> Result<(), HandleRectError> {
         let (x, y, width, height) = parse_rect_properties(attributes)?;
 
-        let x = self.adjusted_x(x)?;
-        let y = self.adjusted_y(y)?;
-        let width = self.adjusted_x(width)?;
-        let height = self.adjusted_y(height)?;
+        let z = self.current_z;
+        self.current_z += Z_SEPARATION;
+
+        let x = self.adjusted_x(x, width)?;
+        let y = self.adjusted_y(y, height)?;
+
+        let width = self.adjusted_width(width)?;
+        let height = self.adjusted_height(height)?;
+
+        let fill_string = attributes
+            .get("fill")
+            .unwrap_or(&svg::node::Value::from("rgba(0,0,0,0)"))
+            .to_string();
+
+        let fill = parse_color(&fill_string)?;
 
         self.commands.spawn(MaterialMesh2dBundle {
             mesh: self
                 .meshes
                 .add(shape::Quad::new(Vec2::new(width, height)).into())
                 .into(),
-            material: self.materials.add(ColorMaterial::from(Color::GRAY)),
-            transform: Transform::from_translation(Vec3::new(x, y, -0.1)),
+            material: self.materials.add(ColorMaterial::from(fill)),
+            transform: Transform::from_translation(Vec3::new(x, y, z)),
             ..default()
         });
 
@@ -186,10 +191,13 @@ impl<'a> Loader<'a> {
         id: &str,
         path: &str,
         attributes: &HashMap<String, svg::node::Value>,
-    ) {
+    ) -> Result<(), HandlePlayerSpawnError> {
         if path != "circle" {
-            panic!("player_spawn {} is not a circle", id);
+            return Err(HandlePlayerSpawnError::SpawnNotACircle);
         }
+
+        let z = self.current_z;
+        self.current_z += Z_SEPARATION;
 
         let player_number = match id {
             "player1Spawn" => 1,
@@ -197,58 +205,84 @@ impl<'a> Loader<'a> {
             _ => panic!("Unknown player spawn id {}", id),
         };
 
+        let r: f32 = attributes
+            .get("r")
+            .unwrap_or(&svg::node::Value::from("0"))
+            .parse()
+            .or(Err(HandlePlayerSpawnError::InvalidR))?;
+
         let x: f32 = attributes
             .get("cx")
-            .expect(&format!("{} has no cx attribute", id))
+            .unwrap_or(&svg::node::Value::from("0"))
             .parse()
-            .expect(&format!("{} has invalid cx attribute", id));
+            .or(Err(HandlePlayerSpawnError::InvalidCx))?;
+        let x = self.adjusted_x(x, r * 2.)? + r;
 
         let y: f32 = attributes
             .get("cy")
-            .expect(&format!("{} has no cy attribute", id))
+            .unwrap_or(&svg::node::Value::from("0"))
             .parse()
-            .expect(&format!("{} has invalid cy attribute", id));
+            .or(Err(HandlePlayerSpawnError::InvalidCy))?;
+        let y = self.adjusted_y(y, r * 2.)? + r;
 
-        let position = Vec3::new(x, y, 0.01 * player_number as f32);
+        let radius = self.adjusted_width(r * 2.)? / 2.;
+
+        let position = Vec3::new(x, y, z);
 
         let color_string = attributes
             .get("fill")
-            .expect(&format!("{} has no fill attribute", id))
+            .ok_or(HandlePlayerSpawnError::MissingFill)?
             .to_string();
 
-        let color_hex_string = csscolorparser::parse(&color_string)
-            .expect(&format!("{} has an invalid fill attribute", id))
-            .to_hex_string();
-
-        let color = Color::hex(color_hex_string).unwrap();
+        let color = parse_color(&color_string)?;
 
         self.commands.spawn(PlayerSpawn {
             player_number,
             position,
             color,
+            radius,
         });
+
+        Ok(())
     }
 
-    fn adjusted_x(self: &Self, x: f32) -> Result<f32, AdjustmentError> {
+    fn adjusted_x(self: &Self, x: f32, width: f32) -> Result<f32, AdjustmentError> {
         let view_box = self.view_box.ok_or(AdjustmentError::MissingViewBox)?;
-        let width = self.width.ok_or(AdjustmentError::MissingWidth)?;
 
-        let x = x - view_box.x;
-        let x = x / view_box.width;
-        let x = x * width;
+        let x = x + (width / 2.0); // adjust x so that it represents the center of the rec instead of the left edge
+        let x = (x / view_box.width) * 2.0 - 1.0; // normalize x so that it is between -1 and 1
+        let x = x * (self.window_width / 2.0); // adjust x so that it is between (-window_width / 2) & (window_width / 2)
 
         Ok(x)
     }
 
-    fn adjusted_y(self: &Self, y: f32) -> Result<f32, AdjustmentError> {
+    fn adjusted_y(self: &Self, y: f32, height: f32) -> Result<f32, AdjustmentError> {
         let view_box = self.view_box.ok_or(AdjustmentError::MissingViewBox)?;
-        let height = self.width.ok_or(AdjustmentError::MissingHeight)?;
 
-        let y = y - view_box.y;
-        let y = y / view_box.height;
-        let y = y * height;
+        let y = y + (height / 2.0); // adjust y so that it represents the center of the rec instead of the top edge
+        let y = (y / view_box.height) * 2.0 - 1.0; // normalize y so that it is between -1 and 1
+        let y = -y; // invert y so that it is between 1 and -1 (SVG is top-down, Bevy is bottom-up)
+        let y = y * (self.window_height / 2.0); // adjust y so that it is between (-window_height / 2) & (window_height / 2)
 
         Ok(y)
+    }
+
+    fn adjusted_width(self: &Self, width: f32) -> Result<f32, AdjustmentError> {
+        let view_box = self.view_box.ok_or(AdjustmentError::MissingViewBox)?;
+
+        let width = width / view_box.width; // adjust width so that it is between 0 & 1
+        let width = width * self.window_width; // adjust width so that it is between 0 & window_width
+
+        Ok(width)
+    }
+
+    fn adjusted_height(self: &Self, height: f32) -> Result<f32, AdjustmentError> {
+        let view_box = self.view_box.ok_or(AdjustmentError::MissingViewBox)?;
+
+        let height = height / view_box.height; // adjust height so that it is between 0 & 1
+        let height = height * self.window_height; // adjust height so that it is between 0 & window_height
+
+        Ok(height)
     }
 }
 
@@ -260,19 +294,30 @@ pub(crate) enum HandleStartTagError {
 #[derive(Debug, Error)]
 pub(crate) enum HandleEmptyTagError {
     HandleRectError(HandleRectError),
+    HandlePlayerSpawnError(HandlePlayerSpawnError),
 }
 
 #[derive(Debug, Error)]
 pub(crate) enum HandleRectError {
     ParseRectError(ParseRectError),
+    InvalidFill(csscolorparser::ParseColorError),
     AdjustmentError(AdjustmentError),
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum HandlePlayerSpawnError {
+    SpawnNotACircle,
+    InvalidCx,
+    InvalidCy,
+    InvalidR,
+    MissingFill,
+    AdjustmentError(AdjustmentError),
+    InvalidFill(csscolorparser::ParseColorError),
 }
 
 #[derive(Debug, Error)]
 pub(crate) enum AdjustmentError {
     MissingViewBox,
-    MissingWidth,
-    MissingHeight,
 }
 
 fn get_string_debug_value(attributes: &HashMap<String, svg::node::Value>, key: &str) -> String {
@@ -284,13 +329,9 @@ fn get_string_debug_value(attributes: &HashMap<String, svg::node::Value>, key: &
 
 #[derive(Debug, Error)]
 pub(crate) enum HandleSvgOpenError {
-    /// Only numeric values allowed for "height". Percentages are not yet supported
-    InvalidWidth,
-    /// Only numeric values allowed for "width". Percentages are not yet supported
-    InvalidHeight,
     /// viewBox attribute is required
     MissingViewBox,
-    /// viewBox attribute is invalid
+    /// viewBox attribute is invalid. Must be "x y width height", and be all numeric
     InvalidViewBox(view_box::ParseViewBoxError),
 }
 
@@ -334,4 +375,9 @@ fn parse_rect_properties(
         .or(Err(ParseRectError::InvalidHeight))?;
 
     return Ok((x, y, width, height));
+}
+
+fn parse_color(color: &str) -> Result<Color, csscolorparser::ParseColorError> {
+    let (r, g, b, a) = csscolorparser::parse(color)?.to_linear_rgba();
+    Ok(Color::rgba(r as f32, g as f32, b as f32, a as f32))
 }

@@ -16,8 +16,9 @@ message Wrapper {
 message Player {
   string id = 1;
   Vec3 position = 2;
-  Color color = 3;
-  MoveData move_data = 4;
+  float radius = 3;
+  Color color = 4;
+  MoveData move_data = 5;
 }
 
 message MoveData {

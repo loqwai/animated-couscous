@@ -18,8 +18,6 @@ use protos::generated::applesauce::wrapper::Inner;
 
 use protos::generated::applesauce::{self};
 
-const PLAYER_RADIUS: f32 = 50.;
-
 const BULLET_SPEED: f32 = 800.;
 const PLAYER_MOVE_SPEED: f32 = 400.;
 const FIRE_TIMEOUT: u64 = 500;
@@ -28,7 +26,7 @@ const GRAVITY: f32 = 3000.;
 const TERMINAL_VELOCITY: f32 = 1000.;
 
 const WINDOW_WIDTH: f32 = 1000.;
-const WINDOW_HEIGHT: f32 = 300.;
+const WINDOW_HEIGHT: f32 = 400.;
 
 fn main() {
     let window_offset: i32 = std::env::var("WINDOW_OFFSET")
@@ -79,7 +77,7 @@ fn main() {
                 // Calculate next game state
                 move_moveables.before(apply_velocity),
                 apply_velocity_gravity.before(apply_velocity),
-                apply_velocity,
+                // apply_velocity,
                 bullet_hit_despawns_player_and_bullet,
                 bullet_moves_forward_system,
                 cleanup_zombies,
@@ -110,6 +108,7 @@ struct Name(String);
 struct Player {
     id: String,
     color: Color,
+    radius: f32,
     fire_timeout: Timer,
 }
 
@@ -205,6 +204,7 @@ struct BulletSyncEvent {
 struct PlayerSyncEvent {
     player_id: String,
     position: Vec3,
+    radius: f32,
     color: Color,
     move_data: MoveData,
 }
@@ -234,7 +234,7 @@ fn load_level(
     meshes: ResMut<Assets<Mesh>>,
     materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    level::load_level(commands, meshes, materials).unwrap();
+    level::load_level(commands, meshes, materials, WINDOW_WIDTH, WINDOW_HEIGHT).unwrap();
 }
 
 #[allow(dead_code)]
@@ -335,6 +335,7 @@ fn read_network_messages_to_events(
                 player_spawn_events.send(PlayerSyncEvent {
                     player_id: e.id,
                     position: e.position.unwrap().into(),
+                    radius: e.radius,
                     color: e.color.unwrap().into(),
                     move_data: MoveData {
                         moving_left: e.move_data.moving_left,
@@ -423,6 +424,7 @@ fn handle_broadcast_state_event(
                         id: player.id.clone(),
                         position: applesauce::Vec3::from(transform.translation).into(),
                         color: applesauce::Color::from(player.color).into(),
+                        radius: player.radius,
                         move_data: applesauce::MoveData::from((
                             move_left.is_some(),
                             move_right.is_some(),
@@ -552,6 +554,7 @@ fn handle_player_sync_events(
                     player: Player {
                         id: event.player_id.clone(),
                         color: event.color,
+                        radius: event.radius,
                         fire_timeout: Timer::new(
                             Duration::from_millis(FIRE_TIMEOUT),
                             TimerMode::Once,
@@ -559,7 +562,7 @@ fn handle_player_sync_events(
                     },
                     velocity: Velocity(Vec3::new(0., 0., 0.)),
                     mesh_bundle: MaterialMesh2dBundle {
-                        mesh: meshes.add(shape::Circle::new(PLAYER_RADIUS).into()).into(),
+                        mesh: meshes.add(shape::Circle::new(event.radius).into()).into(),
                         material: materials.add(ColorMaterial::from(event.color)),
                         transform: Transform::from_translation(event.position),
                         ..default()
@@ -582,7 +585,6 @@ fn handle_player_sync_events(
 fn apply_velocity(mut moveables: Query<(&mut Transform, &Velocity)>, time: Res<Time>) {
     for (mut transform, velocity) in moveables.iter_mut() {
         transform.translation += time.delta_seconds() * velocity.0;
-        transform.translation.y = transform.translation.y.max(PLAYER_RADIUS);
     }
 }
 
@@ -602,7 +604,7 @@ fn bullet_hit_despawns_player_and_bullet(
 ) {
     for bullet in bullets.iter() {
         for player in players.iter_mut() {
-            if bullet.1.translation.distance(player.1.translation) < PLAYER_RADIUS {
+            if bullet.1.translation.distance(player.1.translation) < player.0.radius {
                 commands.entity(bullet.0).insert(Despawn);
                 dead_list.0.insert(bullet.2.id.clone());
 
@@ -668,11 +670,12 @@ fn ensure_main_player(
                 player: Player {
                     id: id.clone(),
                     color: spawn.color,
+                    radius: spawn.radius,
                     fire_timeout: Timer::new(Duration::from_millis(FIRE_TIMEOUT), TimerMode::Once),
                 },
                 velocity: Velocity(Vec3::new(0., 0., 0.)),
                 mesh_bundle: MaterialMesh2dBundle {
-                    mesh: meshes.add(shape::Circle::new(PLAYER_RADIUS).into()).into(),
+                    mesh: meshes.add(shape::Circle::new(spawn.radius).into()).into(),
                     material: materials.add(ColorMaterial::from(spawn.color)),
                     transform: Transform::from_translation(spawn.position),
                     ..default()
@@ -686,6 +689,7 @@ fn ensure_main_player(
                 applesauce::Player {
                     id: id.clone(),
                     position: applesauce::Vec3::from(spawn.position).into(),
+                    radius: spawn.radius,
                     color: applesauce::Color::from(spawn.color).into(),
                     move_data: applesauce::MoveData::from((false, false)).into(),
                     special_fields: Default::default(),
@@ -790,6 +794,7 @@ fn write_keyboard_as_player_to_network_fallible(
                 applesauce::Player {
                     id: player.id.clone(),
                     position: applesauce::Vec3::from(player_transform.translation).into(),
+                    radius: player.radius,
                     color: applesauce::Color::from(color).into(),
                     move_data: applesauce::MoveData::from((a_pressed, d_pressed)).into(),
                     special_fields: Default::default(),
@@ -853,7 +858,7 @@ fn write_mouse_left_clicks_as_bullets_to_network_fallible(
     // offset the bullet so they don't shoot themselves
     let bullet_half_length = 20.;
     let fudge_factor = 1.;
-    let offset = PLAYER_RADIUS + bullet_half_length + fudge_factor;
+    let offset = player.0.radius + bullet_half_length + fudge_factor;
     let bullet_position = transform.translation.xy() + aim.clamp_length_min(offset);
 
     transform.translation = Vec3::new(bullet_position.x, bullet_position.y, 0.1);
