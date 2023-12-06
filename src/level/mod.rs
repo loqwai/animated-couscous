@@ -10,6 +10,7 @@ use self::view_box::ViewBox;
 
 // const LEVEL_PATH: &str = "assets/level.svg";
 const LEVEL_PATH: &str = "assets/plain.svg";
+// const LEVEL_PATH: &str = "assets/half-plain.svg";
 
 const PLAYER_SPAWN_IDS: [&str; 2] = ["player1Spawn", "player2Spawn"];
 const Z_SEPARATION: f32 = 0.01;
@@ -210,22 +211,21 @@ impl<'a> Loader<'a> {
             .unwrap_or(&svg::node::Value::from("0"))
             .parse()
             .or(Err(HandlePlayerSpawnError::InvalidR))?;
+        let radius = self.adjusted_width(r * 2.)? / 2.;
 
         let x: f32 = attributes
             .get("cx")
             .unwrap_or(&svg::node::Value::from("0"))
             .parse()
             .or(Err(HandlePlayerSpawnError::InvalidCx))?;
-        let x = self.adjusted_x(x, r * 2.)? + r;
+        let x = self.adjusted_x(x, r * 2.)? + radius;
 
         let y: f32 = attributes
             .get("cy")
             .unwrap_or(&svg::node::Value::from("0"))
             .parse()
             .or(Err(HandlePlayerSpawnError::InvalidCy))?;
-        let y = self.adjusted_y(y, r * 2.)? + r;
-
-        let radius = self.adjusted_width(r * 2.)? / 2.;
+        let y = self.adjusted_y(y, r * 2.)? + radius;
 
         let position = Vec3::new(x, y, z);
 
