@@ -9,8 +9,9 @@ use bevy_inspector_egui::egui::TextBuffer;
 use self::view_box::ViewBox;
 
 // const LEVEL_PATH: &str = "assets/level.svg";
-const LEVEL_PATH: &str = "assets/plain.svg";
+// const LEVEL_PATH: &str = "assets/plain.svg";
 // const LEVEL_PATH: &str = "assets/half-plain.svg";
+const LEVEL_PATH: &str = "assets/offset-plain.svg";
 
 const PLAYER_SPAWN_IDS: [&str; 2] = ["player1Spawn", "player2Spawn"];
 const Z_SEPARATION: f32 = 0.01;
@@ -249,6 +250,7 @@ impl<'a> Loader<'a> {
     fn adjusted_x(self: &Self, x: f32, width: f32) -> Result<f32, AdjustmentError> {
         let view_box = self.view_box.ok_or(AdjustmentError::MissingViewBox)?;
 
+        let x = x - view_box.x; // adjust x so that it represents the distance from the left edge of the view box
         let x = x + (width / 2.0); // adjust x so that it represents the center of the rec instead of the left edge
         let x = (x / view_box.width) * 2.0 - 1.0; // normalize x so that it is between -1 and 1
         let x = x * (self.window_width / 2.0); // adjust x so that it is between (-window_width / 2) & (window_width / 2)
@@ -259,6 +261,7 @@ impl<'a> Loader<'a> {
     fn adjusted_y(self: &Self, y: f32, height: f32) -> Result<f32, AdjustmentError> {
         let view_box = self.view_box.ok_or(AdjustmentError::MissingViewBox)?;
 
+        let y = y - view_box.y; // adjust y so that it represents the distance from the top edge of the view box
         let y = y + (height / 2.0); // adjust y so that it represents the center of the rec instead of the top edge
         let y = (y / view_box.height) * 2.0 - 1.0; // normalize y so that it is between -1 and 1
         let y = -y; // invert y so that it is between 1 and -1 (SVG is top-down, Bevy is bottom-up)
