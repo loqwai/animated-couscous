@@ -19,7 +19,7 @@ const Z_SEPARATION: f32 = 0.01;
 
 #[derive(Component)]
 pub(crate) struct PlayerSpawn {
-    pub player_number: u8,
+    pub player_number: u32,
     pub position: Vec3,
     pub color: Color,
     pub radius: f32,

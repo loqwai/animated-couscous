@@ -15,10 +15,11 @@ message Wrapper {
 
 message Player {
   string id = 1;
-  Vec3 position = 2;
-  float radius = 3;
-  Color color = 4;
-  MoveData move_data = 5;
+  uint32 number = 2;
+  Vec3 position = 3;
+  float radius = 4;
+  Color color = 5;
+  MoveData move_data = 6;
 }
 
 message MoveData {

@@ -110,6 +110,7 @@ struct Name(String);
 #[derive(Component)]
 struct Player {
     id: String,
+    number: u32,
     color: Color,
     radius: f32,
     fire_timeout: Timer,
@@ -206,6 +207,7 @@ struct BulletSyncEvent {
 #[derive(Event)]
 struct PlayerSyncEvent {
     player_id: String,
+    number: u32,
     position: Vec3,
     radius: f32,
     color: Color,
@@ -341,6 +343,7 @@ fn read_network_messages_to_events(
             Inner::Player(e) => {
                 player_spawn_events.send(PlayerSyncEvent {
                     player_id: e.id,
+                    number: e.number,
                     position: e.position.unwrap().into(),
                     radius: e.radius,
                     color: e.color.unwrap().into(),
@@ -429,6 +432,7 @@ fn handle_broadcast_state_event(
                 .send(
                     applesauce::Player {
                         id: player.id.clone(),
+                        number: player.number,
                         position: applesauce::Vec3::from(transform.translation).into(),
                         color: applesauce::Color::from(player.color).into(),
                         radius: player.radius,
@@ -541,11 +545,29 @@ fn handle_player_sync_events(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut existing_players: Query<(Entity, &Player, &mut Transform)>,
-    dead_list: Res<DeadList>,
+    main_players: Query<(Entity, &Player), With<MainPlayer>>,
+    mut dead_list: ResMut<DeadList>,
 ) {
+    let main_player = main_players.get_single().ok();
+
     for event in events.read() {
         if dead_list.0.contains(&event.player_id) {
             continue;
+        }
+
+        if main_player.is_some()
+            && main_player.unwrap().1.number == event.number
+            && main_player.unwrap().1.id != event.player_id
+        {
+            // we now have a collision. If the other player's ID is lower than ours, then we die and respawn.
+            // otherwise we just ignore the event
+            match main_player.unwrap().1.id.cmp(&event.player_id) {
+                std::cmp::Ordering::Less => {
+                    commands.entity(main_player.unwrap().0).insert(Despawn);
+                    dead_list.0.insert(main_player.unwrap().1.id.clone());
+                }
+                _ => continue,
+            }
         }
 
         let entity = match existing_players
@@ -560,6 +582,7 @@ fn handle_player_sync_events(
                 .spawn(PlayerBundle {
                     player: Player {
                         id: event.player_id.clone(),
+                        number: event.number,
                         color: event.color,
                         radius: event.radius,
                         fire_timeout: Timer::new(
@@ -651,21 +674,29 @@ fn ensure_main_player(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     main_players: Query<Entity, With<MainPlayer>>,
+    other_players: Query<&Player, Without<MainPlayer>>,
     player_spawns: Query<&PlayerSpawn>,
     server: Res<NetServer>,
 ) {
     if main_players.iter().count() == 0 {
         let id = uuid::Uuid::new_v4().to_string();
+
+        let other_player_numbers: HashSet<u32> = other_players.iter().map(|p| p.number).collect();
+
+        // find a spawn that isn't already in use
         let spawn = player_spawns
             .iter()
-            .find(|s| s.player_number == 1)
+            .find(|s| other_player_numbers.get(&s.player_number).is_none())
             .expect("Could not find player 1 spawn point");
+
+        let number = spawn.player_number;
 
         commands.spawn(MainPlayerBundle {
             main_player: MainPlayer,
             player_bundle: PlayerBundle {
                 player: Player {
                     id: id.clone(),
+                    number,
                     color: spawn.color,
                     radius: spawn.radius,
                     fire_timeout: Timer::new(Duration::from_millis(FIRE_TIMEOUT), TimerMode::Once),
@@ -688,6 +719,7 @@ fn ensure_main_player(
             .send(
                 applesauce::Player {
                     id: id.clone(),
+                    number,
                     position: applesauce::Vec3::from(spawn.position).into(),
                     radius: spawn.radius,
                     color: applesauce::Color::from(spawn.color).into(),
@@ -793,6 +825,7 @@ fn write_keyboard_as_player_to_network_fallible(
             .send(
                 applesauce::Player {
                     id: player.id.clone(),
+                    number: player.number,
                     position: applesauce::Vec3::from(player_transform.translation).into(),
                     radius: player.radius,
                     color: applesauce::Color::from(color).into(),
