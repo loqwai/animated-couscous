@@ -637,6 +637,7 @@ fn bullet_hit_despawns_player_and_bullet(
     }
 }
 
+// TODO: Migrate this to use Rapier
 fn bullet_moves_forward_system(mut bullets: Query<(&Bullet, &mut Transform)>, time: Res<Time>) {
     for (bullet, mut transform) in bullets.iter_mut() {
         transform.translation += bullet.velocity * time.delta_seconds();
