@@ -683,11 +683,11 @@ fn ensure_main_player(
 
         let other_player_numbers: HashSet<u32> = other_players.iter().map(|p| p.number).collect();
 
-        // find a spawn that isn't already in use
+        // find a spawn that isn't already claimed
         let spawn = player_spawns
             .iter()
             .find(|s| other_player_numbers.get(&s.player_number).is_none())
-            .expect("Could not find player 1 spawn point");
+            .expect("Could not find an unclaimed spawn point");
 
         let number = spawn.player_number;
 
