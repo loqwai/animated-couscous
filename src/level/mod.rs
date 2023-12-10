@@ -14,7 +14,7 @@ const LEVEL_PATH: &str = "assets/level.svg";
 // const LEVEL_PATH: &str = "assets/half-plain.svg";
 // const LEVEL_PATH: &str = "assets/offset-plain.svg";
 
-const PLAYER_SPAWN_IDS: [&str; 2] = ["player1Spawn", "player2Spawn"];
+const PLAYER_SPAWN_IDS: [&str; 3] = ["player1Spawn", "player2Spawn", "player3Spawn"];
 const Z_SEPARATION: f32 = 0.01;
 
 #[derive(Component)]
@@ -221,6 +221,7 @@ impl<'a> Loader<'a> {
         let player_number = match id {
             "player1Spawn" => 1,
             "player2Spawn" => 2,
+            "player3Spawn" => 3,
             _ => panic!("Unknown player spawn id {}", id),
         };
 
