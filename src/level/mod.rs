@@ -14,7 +14,6 @@ const LEVEL_PATH: &str = "assets/level.svg";
 // const LEVEL_PATH: &str = "assets/half-plain.svg";
 // const LEVEL_PATH: &str = "assets/offset-plain.svg";
 
-const PLAYER_SPAWN_IDS: [&str; 3] = ["player1Spawn", "player2Spawn", "player3Spawn"];
 const Z_SEPARATION: f32 = 0.01;
 
 #[derive(Component)]
@@ -26,7 +25,7 @@ pub(crate) struct PlayerSpawn {
 }
 
 #[derive(Bundle)]
-pub(crate) struct RectCollider {
+pub(crate) struct ColliderBundle {
     body: RigidBody,
     collider: Collider,
 }
@@ -123,15 +122,8 @@ impl<'a> Loader<'a> {
         path: &str,
         attributes: &HashMap<String, svg::node::Value>,
     ) -> Result<(), HandleEmptyTagError> {
-        // player spawns are special, so handle them first
-        if let Some(id) = attributes.get("id") {
-            if PLAYER_SPAWN_IDS.contains(&id.to_string().as_str()) {
-                self.handle_player_spawn(id, path, &attributes)?;
-                return Ok(());
-            }
-        }
-
         match path {
+            "circle" => self.handle_circle(&attributes)?,
             "rect" => self.handle_rect(&attributes)?,
             _ => {
                 println!(
@@ -196,7 +188,7 @@ impl<'a> Loader<'a> {
             .id();
 
         if has_class(attributes, "collider") {
-            self.commands.entity(entity).insert(RectCollider {
+            self.commands.entity(entity).insert(ColliderBundle {
                 body: RigidBody::Fixed,
                 collider: Collider::cuboid(width / 2., height / 2.),
             });
@@ -205,25 +197,80 @@ impl<'a> Loader<'a> {
         Ok(())
     }
 
-    fn handle_player_spawn(
+    fn handle_circle(
         self: &mut Self,
-        id: &str,
-        path: &str,
         attributes: &HashMap<String, svg::node::Value>,
-    ) -> Result<(), HandlePlayerSpawnError> {
-        if path != "circle" {
-            return Err(HandlePlayerSpawnError::SpawnNotACircle);
+    ) -> Result<(), HandleCircleError> {
+        if has_class(attributes, "spawn-player") {
+            self.handle_player_spawn(attributes)?;
+            return Ok(());
         }
 
         let z = self.current_z;
         self.current_z += Z_SEPARATION;
 
-        let player_number = match id {
-            "player1Spawn" => 1,
-            "player2Spawn" => 2,
-            "player3Spawn" => 3,
-            _ => panic!("Unknown player spawn id {}", id),
-        };
+        let r: f32 = attributes
+            .get("r")
+            .unwrap_or(&svg::node::Value::from("0"))
+            .parse()
+            .or(Err(HandleCircleError::InvalidR))?;
+        let radius = self.adjusted_width(r * 2.)? / 2.;
+
+        let x: f32 = attributes
+            .get("cx")
+            .unwrap_or(&svg::node::Value::from("0"))
+            .parse()
+            .or(Err(HandleCircleError::InvalidCx))?;
+        let x = self.adjusted_x(x, r * 2.)? + radius;
+
+        let y: f32 = attributes
+            .get("cy")
+            .unwrap_or(&svg::node::Value::from("0"))
+            .parse()
+            .or(Err(HandleCircleError::InvalidCy))?;
+        let y = self.adjusted_y(y, r * 2.)? + radius;
+
+        let position = Vec3::new(x, y, z);
+
+        let color_string = attributes
+            .get("fill")
+            .ok_or(HandleCircleError::MissingFill)?
+            .to_string();
+
+        let color = parse_color(&color_string)?;
+
+        let entity = self
+            .commands
+            .spawn(MaterialMesh2dBundle {
+                mesh: self.meshes.add(shape::Circle::new(radius).into()).into(),
+                material: self.materials.add(ColorMaterial::from(color)),
+                transform: Transform::from_translation(position),
+                ..default()
+            })
+            .id();
+
+        if has_class(attributes, "collider") {
+            self.commands.entity(entity).insert(ColliderBundle {
+                body: RigidBody::Fixed,
+                collider: Collider::ball(radius),
+            });
+        }
+
+        Ok(())
+    }
+
+    fn handle_player_spawn(
+        self: &mut Self,
+        attributes: &HashMap<String, svg::node::Value>,
+    ) -> Result<(), HandlePlayerSpawnError> {
+        let z = self.current_z;
+        self.current_z += Z_SEPARATION;
+
+        let player_number: u32 = attributes
+            .get("data-player-number")
+            .ok_or(HandlePlayerSpawnError::MissingPlayerNumber)?
+            .parse()
+            .or(Err(HandlePlayerSpawnError::InvalidPlayerNumber))?;
 
         let r: f32 = attributes
             .get("r")
@@ -315,7 +362,7 @@ pub(crate) enum HandleStartTagError {
 #[derive(Debug, Error)]
 pub(crate) enum HandleEmptyTagError {
     HandleRectError(HandleRectError),
-    HandlePlayerSpawnError(HandlePlayerSpawnError),
+    HandleCircleError(HandleCircleError),
 }
 
 #[derive(Debug, Error)]
@@ -326,12 +373,24 @@ pub(crate) enum HandleRectError {
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum HandlePlayerSpawnError {
-    SpawnNotACircle,
+pub(crate) enum HandleCircleError {
     InvalidCx,
     InvalidCy,
     InvalidR,
     MissingFill,
+    AdjustmentError(AdjustmentError),
+    InvalidFill(csscolorparser::ParseColorError),
+    HandlePlayerSpawnError(HandlePlayerSpawnError),
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum HandlePlayerSpawnError {
+    InvalidCx,
+    InvalidCy,
+    InvalidR,
+    MissingFill,
+    InvalidPlayerNumber,
+    MissingPlayerNumber,
     AdjustmentError(AdjustmentError),
     InvalidFill(csscolorparser::ParseColorError),
 }
