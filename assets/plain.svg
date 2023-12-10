@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="400" viewBox="0 0 1000 400">
   <rect id="background" width="1000" height="400" fill="#1b1b1b" x="0" y="0" />
 
-  <rect class="collidable" width="1000" height="40" fill="#808080" x="0" y="360" />
+  <rect class="collider" width="1000" height="40" fill="#808080" x="0" y="360" />
 
   <circle id="player1Spawn" cx="100" cy="320" r="40" fill="red" />
   <circle id="player2Spawn" cx="900" cy="320" r="40" fill="blue" />

@@ -12,6 +12,9 @@ use bevy::sprite::MaterialMesh2dBundle;
 use bevy::utils::HashSet;
 use bevy::window::WindowPlugin;
 use bevy::window::{PrimaryWindow, WindowResolution};
+use bevy_rapier2d::plugin::{NoUserData, RapierPhysicsPlugin};
+use bevy_rapier2d::prelude::*;
+use bevy_rapier2d::render::RapierDebugRenderPlugin;
 use crossbeam_channel::{Receiver, Sender};
 use level::PlayerSpawn;
 use protos::generated::applesauce::wrapper::Inner;
@@ -22,8 +25,7 @@ const BULLET_SPEED: f32 = 800.;
 const PLAYER_MOVE_SPEED: f32 = 400.;
 const FIRE_TIMEOUT: u64 = 500;
 const JUMP_AMOUNT: f32 = 500.;
-const GRAVITY: f32 = 3000.;
-const TERMINAL_VELOCITY: f32 = 1000.;
+const GRAVITY: f32 = 2000.;
 
 const WINDOW_WIDTH: f32 = 1000.;
 const WINDOW_HEIGHT: f32 = 400.;
@@ -47,6 +49,8 @@ fn main() {
             }),
             ..Default::default()
         }))
+        .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(10.0))
+        .add_plugins(RapierDebugRenderPlugin::default())
         .add_event::<BroadcastStateEvent>()
         .add_event::<IAmOutOfSyncEvent>()
         .add_event::<PlayerSyncEvent>()
@@ -75,8 +79,7 @@ fn main() {
                 // auto_fire,
                 // debug_events,
                 // Calculate next game state
-                move_moveables.before(apply_velocity),
-                apply_velocity_gravity.before(apply_velocity),
+                move_moveables,
                 // apply_velocity,
                 bullet_hit_despawns_player_and_bullet,
                 bullet_moves_forward_system,
@@ -120,6 +123,9 @@ struct PlayerBundle {
     player: Player,
     velocity: Velocity,
     mesh_bundle: MaterialMesh2dBundle<ColorMaterial>,
+    body: RigidBody,
+    collider: Collider,
+    locked_axis: LockedAxes,
 }
 
 #[derive(Bundle)]
@@ -127,9 +133,6 @@ struct MainPlayerBundle {
     main_player: MainPlayer,
     player_bundle: PlayerBundle,
 }
-
-#[derive(Component)]
-struct Velocity(Vec3);
 
 #[derive(Component)]
 struct MoveLeft;
@@ -218,6 +221,10 @@ struct IAmOutOfSyncEvent;
 fn setup(mut commands: Commands) {
     commands.insert_resource(DeadList(HashSet::new()));
     commands.spawn(Camera2dBundle::default());
+    commands.insert_resource(RapierConfiguration {
+        gravity: Vec2::new(0., -GRAVITY).into(),
+        ..Default::default()
+    });
 }
 
 fn start_local_server(mut commands: Commands) {
@@ -522,7 +529,7 @@ fn handle_jump_events(
         match players.iter_mut().find(|(p, _)| p.id == event.player_id) {
             None => i_am_out_of_sync_events.send(IAmOutOfSyncEvent),
             Some((_, mut velocity)) => {
-                velocity.0.y = JUMP_AMOUNT;
+                velocity.linvel.y = JUMP_AMOUNT;
             }
         }
     }
@@ -560,7 +567,10 @@ fn handle_player_sync_events(
                             TimerMode::Once,
                         ),
                     },
-                    velocity: Velocity(Vec3::new(0., 0., 0.)),
+                    velocity: Velocity::zero(),
+                    body: RigidBody::Dynamic,
+                    collider: Collider::ball(event.radius),
+                    locked_axis: LockedAxes::ROTATION_LOCKED,
                     mesh_bundle: MaterialMesh2dBundle {
                         mesh: meshes.add(shape::Circle::new(event.radius).into()).into(),
                         material: materials.add(ColorMaterial::from(event.color)),
@@ -579,19 +589,6 @@ fn handle_player_sync_events(
             true => commands.entity(entity).insert(MoveRight),
             false => commands.entity(entity).remove::<MoveRight>(),
         };
-    }
-}
-
-fn apply_velocity(mut moveables: Query<(&mut Transform, &Velocity)>, time: Res<Time>) {
-    for (mut transform, velocity) in moveables.iter_mut() {
-        transform.translation += time.delta_seconds() * velocity.0;
-    }
-}
-
-fn apply_velocity_gravity(mut velocities: Query<&mut Velocity>, time: Res<Time>) {
-    for mut velocity in velocities.iter_mut() {
-        velocity.0.y -= time.delta_seconds() * GRAVITY;
-        velocity.0.y = velocity.0.y.max(-TERMINAL_VELOCITY);
     }
 }
 
@@ -673,7 +670,10 @@ fn ensure_main_player(
                     radius: spawn.radius,
                     fire_timeout: Timer::new(Duration::from_millis(FIRE_TIMEOUT), TimerMode::Once),
                 },
-                velocity: Velocity(Vec3::new(0., 0., 0.)),
+                body: RigidBody::Dynamic,
+                velocity: Velocity::zero(),
+                collider: Collider::ball(spawn.radius),
+                locked_axis: LockedAxes::ROTATION_LOCKED,
                 mesh_bundle: MaterialMesh2dBundle {
                     mesh: meshes.add(shape::Circle::new(spawn.radius).into()).into(),
                     material: materials.add(ColorMaterial::from(spawn.color)),
@@ -706,15 +706,15 @@ fn move_moveables(
     mut non_movers: Query<&mut Velocity, (Without<MoveLeft>, Without<MoveRight>)>,
 ) {
     for mut left_mover in left_movers.iter_mut() {
-        left_mover.0.x = -PLAYER_MOVE_SPEED;
+        left_mover.linvel.x = -PLAYER_MOVE_SPEED;
     }
 
     for mut right_mover in right_movers.iter_mut() {
-        right_mover.0.x = PLAYER_MOVE_SPEED;
+        right_mover.linvel.x = PLAYER_MOVE_SPEED;
     }
 
     for mut non_mover in non_movers.iter_mut() {
-        non_mover.0.x = 0.;
+        non_mover.linvel.x = 0.;
     }
 }
 

@@ -5,13 +5,14 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy_inspector_egui::egui::TextBuffer;
+use bevy_rapier2d::prelude::*;
 
 use self::view_box::ViewBox;
 
-// const LEVEL_PATH: &str = "assets/level.svg";
+const LEVEL_PATH: &str = "assets/level.svg";
 // const LEVEL_PATH: &str = "assets/plain.svg";
 // const LEVEL_PATH: &str = "assets/half-plain.svg";
-const LEVEL_PATH: &str = "assets/offset-plain.svg";
+// const LEVEL_PATH: &str = "assets/offset-plain.svg";
 
 const PLAYER_SPAWN_IDS: [&str; 2] = ["player1Spawn", "player2Spawn"];
 const Z_SEPARATION: f32 = 0.01;
@@ -22,6 +23,12 @@ pub(crate) struct PlayerSpawn {
     pub position: Vec3,
     pub color: Color,
     pub radius: f32,
+}
+
+#[derive(Bundle)]
+pub(crate) struct RectCollider {
+    body: RigidBody,
+    collider: Collider,
 }
 
 #[derive(Debug, Error)]
@@ -175,15 +182,25 @@ impl<'a> Loader<'a> {
 
         let fill = parse_color(&fill_string)?;
 
-        self.commands.spawn(MaterialMesh2dBundle {
-            mesh: self
-                .meshes
-                .add(shape::Quad::new(Vec2::new(width, height)).into())
-                .into(),
-            material: self.materials.add(ColorMaterial::from(fill)),
-            transform: Transform::from_translation(Vec3::new(x, y, z)),
-            ..default()
-        });
+        let entity = self
+            .commands
+            .spawn(MaterialMesh2dBundle {
+                mesh: self
+                    .meshes
+                    .add(shape::Quad::new(Vec2::new(width, height)).into())
+                    .into(),
+                material: self.materials.add(ColorMaterial::from(fill)),
+                transform: Transform::from_translation(Vec3::new(x, y, z)),
+                ..default()
+            })
+            .id();
+
+        if has_class(attributes, "collider") {
+            self.commands.entity(entity).insert(RectCollider {
+                body: RigidBody::Fixed,
+                collider: Collider::cuboid(width / 2., height / 2.),
+            });
+        }
 
         Ok(())
     }
@@ -383,4 +400,18 @@ fn parse_rect_properties(
 fn parse_color(color: &str) -> Result<Color, csscolorparser::ParseColorError> {
     let (r, g, b, a) = csscolorparser::parse(color)?.to_linear_rgba();
     Ok(Color::rgba(r as f32, g as f32, b as f32, a as f32))
+}
+
+fn has_class(attributes: &HashMap<String, svg::node::Value>, needle: &str) -> bool {
+    match attributes.get("class") {
+        Some(value) => {
+            for class in value.to_string().split_whitespace() {
+                if class == needle {
+                    return true;
+                }
+            }
+            false
+        }
+        _ => false,
+    }
 }
