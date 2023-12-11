@@ -156,6 +156,9 @@ struct Despawn;
 struct ShieldBundle {
     shield: Shield,
     mesh_bundle: MaterialMesh2dBundle<ColorMaterial>,
+
+    // physics
+    collider: Collider,
 }
 
 #[derive(Bundle)]
@@ -401,6 +404,7 @@ fn handle_block_events(
                         shield: Shield {
                             ttl: Timer::new(Duration::from_millis(100), TimerMode::Once),
                         },
+                        collider: Collider::ball(60.),
                         mesh_bundle: MaterialMesh2dBundle {
                             mesh: meshes.add(shape::Circle::new(60.).into()).into(),
                             material: materials
