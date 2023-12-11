@@ -641,13 +641,13 @@ fn bullet_hit_despawns_player_and_bullet(
                     Some(b) => b,
                 };
 
+                commands.entity(bullet.0).insert(Despawn);
+                dead_list.0.insert(bullet.1.id.clone());
+
                 let player = match players.iter().find(|(e, _)| e == e1 || e == e2) {
                     None => continue,
                     Some(p) => p,
                 };
-
-                commands.entity(bullet.0).insert(Despawn);
-                dead_list.0.insert(bullet.1.id.clone());
 
                 server
                     .tx
