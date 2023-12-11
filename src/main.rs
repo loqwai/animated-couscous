@@ -162,7 +162,11 @@ struct ShieldBundle {
 struct BulletBundle {
     bullet: Bullet,
     mesh_bundle: MaterialMesh2dBundle<ColorMaterial>,
+
+    // physics
+    active_events: ActiveEvents,
     body: RigidBody,
+    ccd: Ccd, // continuous collision detection
     collider: Collider,
     velocity: Velocity,
 }
@@ -491,7 +495,9 @@ fn handle_bullet_sync_events(
                     bullet: Bullet {
                         id: uuid::Uuid::new_v4().to_string(),
                     },
+                    active_events: ActiveEvents::COLLISION_EVENTS,
                     body: RigidBody::Dynamic,
+                    ccd: Ccd::enabled(),
                     collider: Collider::cuboid(20., 5.),
                     velocity: Velocity::linear(event.velocity.xy()),
                     mesh_bundle: MaterialMesh2dBundle {
@@ -620,20 +626,32 @@ fn handle_player_sync_events(
 
 fn bullet_hit_despawns_player_and_bullet(
     mut commands: Commands,
-    bullets: Query<(Entity, &Transform, &Bullet), With<Bullet>>,
-    mut players: Query<(&Player, &Transform), (With<Player>, Without<Shield>)>,
+    mut collision_events: EventReader<CollisionEvent>,
+    bullets: Query<(Entity, &Bullet)>,
+    players: Query<(Entity, &Player), Without<Shield>>,
     server: ResMut<NetServer>,
     mut dead_list: ResMut<DeadList>,
 ) {
-    for bullet in bullets.iter() {
-        for player in players.iter_mut() {
-            if bullet.1.translation.distance(player.1.translation) < player.0.radius {
+    for collision_event in collision_events.read() {
+        match collision_event {
+            CollisionEvent::Stopped(_, _, _) => continue,
+            CollisionEvent::Started(e1, e2, _) => {
+                let bullet = match bullets.iter().find(|(e, _)| e == e1 || e == e2) {
+                    None => continue,
+                    Some(b) => b,
+                };
+
+                let player = match players.iter().find(|(e, _)| e == e1 || e == e2) {
+                    None => continue,
+                    Some(p) => p,
+                };
+
                 commands.entity(bullet.0).insert(Despawn);
-                dead_list.0.insert(bullet.2.id.clone());
+                dead_list.0.insert(bullet.1.id.clone());
 
                 server
                     .tx
-                    .send(applesauce::DespawnPlayer::from(player.0.id.clone()).into())
+                    .send(applesauce::DespawnPlayer::from(player.1.id.clone()).into())
                     .unwrap();
             }
         }
