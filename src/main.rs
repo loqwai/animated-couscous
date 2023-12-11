@@ -21,7 +21,7 @@ use protos::generated::applesauce::wrapper::Inner;
 
 use protos::generated::applesauce::{self};
 
-const BULLET_SPEED: f32 = 800.;
+const BULLET_SPEED: f32 = 1000.;
 const PLAYER_MOVE_SPEED: f32 = 400.;
 const FIRE_TIMEOUT: u64 = 500;
 const JUMP_AMOUNT: f32 = 500.;
@@ -44,12 +44,11 @@ fn main() {
                     x: 0,
                     y: window_offset,
                 }),
-
                 ..Default::default()
             }),
             ..Default::default()
         }))
-        .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(10.0))
+        .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         .add_plugins(RapierDebugRenderPlugin::default())
         .add_event::<BroadcastStateEvent>()
         .add_event::<IAmOutOfSyncEvent>()
@@ -79,10 +78,9 @@ fn main() {
                 // auto_fire,
                 // debug_events,
                 // Calculate next game state
-                move_moveables,
+                adjust_players_velocity,
                 // apply_velocity,
                 bullet_hit_despawns_player_and_bullet,
-                bullet_moves_forward_system,
                 cleanup_zombies,
                 despawn_shield_on_ttl,
                 ensure_main_player,
@@ -144,7 +142,6 @@ struct MoveRight;
 #[derive(Component)]
 struct Bullet {
     id: String,
-    velocity: Vec3,
 }
 
 #[derive(Component)]
@@ -165,6 +162,9 @@ struct ShieldBundle {
 struct BulletBundle {
     bullet: Bullet,
     mesh_bundle: MaterialMesh2dBundle<ColorMaterial>,
+    body: RigidBody,
+    collider: Collider,
+    velocity: Velocity,
 }
 
 #[derive(Resource)]
@@ -415,7 +415,7 @@ fn handle_block_events(
 fn handle_broadcast_state_event(
     server: ResMut<NetServer>,
     players: Query<(&Player, &Transform, Option<&MoveLeft>, Option<&MoveRight>)>,
-    bullets: Query<(&Bullet, &Transform)>,
+    bullets: Query<(&Bullet, &Transform, &Velocity)>,
     mut broadcast_state_events: EventReader<BroadcastStateEvent>,
 ) {
     if broadcast_state_events.is_empty() {
@@ -449,14 +449,14 @@ fn handle_broadcast_state_event(
         });
 
     /* uncommenting the follow code causes the app to hang occasionally */
-    bullets.iter().for_each(|(bullet, transform)| {
+    bullets.iter().for_each(|(bullet, transform, velocity)| {
         server
             .tx
             .send(
                 applesauce::Bullet {
                     id: bullet.id.clone(),
                     position: applesauce::Vec3::from(transform.translation).into(),
-                    velocity: applesauce::Vec3::from(bullet.velocity).into(),
+                    velocity: applesauce::Vec3::from(velocity.linvel).into(),
                     special_fields: Default::default(),
                 }
                 .into(),
@@ -470,7 +470,7 @@ fn handle_bullet_sync_events(
     mut events: EventReader<BulletSyncEvent>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut bullets: Query<(&Bullet, &mut Transform)>,
+    mut bullets: Query<(&Bullet, &mut Transform, &mut Velocity)>,
     dead_list: Res<DeadList>,
 ) {
     for event in events.read() {
@@ -480,17 +480,20 @@ fn handle_bullet_sync_events(
 
         let rotation = Quat::from_rotation_z(event.velocity.y.atan2(event.velocity.x));
 
-        match bullets.iter_mut().find(|(b, _)| b.id == event.id) {
-            Some((_, mut transform)) => {
+        match bullets.iter_mut().find(|(b, _, _)| b.id == event.id) {
+            Some((_, mut transform, mut velocity)) => {
                 transform.translation = event.position;
                 transform.rotation = rotation;
+                velocity.linvel = event.velocity.xy();
             }
             None => {
                 commands.spawn(BulletBundle {
                     bullet: Bullet {
                         id: uuid::Uuid::new_v4().to_string(),
-                        velocity: event.velocity,
                     },
+                    body: RigidBody::Dynamic,
+                    collider: Collider::cuboid(20., 5.),
+                    velocity: Velocity::linear(event.velocity.xy()),
                     mesh_bundle: MaterialMesh2dBundle {
                         mesh: meshes
                             .add(shape::Quad::new(Vec2::new(40., 10.)).into())
@@ -637,13 +640,6 @@ fn bullet_hit_despawns_player_and_bullet(
     }
 }
 
-// TODO: Migrate this to use Rapier
-fn bullet_moves_forward_system(mut bullets: Query<(&Bullet, &mut Transform)>, time: Res<Time>) {
-    for (bullet, mut transform) in bullets.iter_mut() {
-        transform.translation += bullet.velocity * time.delta_seconds();
-    }
-}
-
 fn cleanup_zombies(
     mut commands: Commands,
     players: Query<(Entity, &Player)>,
@@ -733,10 +729,10 @@ fn ensure_main_player(
     }
 }
 
-fn move_moveables(
-    mut left_movers: Query<&mut Velocity, (With<MoveLeft>, Without<MoveRight>)>,
-    mut right_movers: Query<&mut Velocity, (With<MoveRight>, Without<MoveLeft>)>,
-    mut non_movers: Query<&mut Velocity, (Without<MoveLeft>, Without<MoveRight>)>,
+fn adjust_players_velocity(
+    mut left_movers: Query<&mut Velocity, (With<Player>, With<MoveLeft>, Without<MoveRight>)>,
+    mut right_movers: Query<&mut Velocity, (With<Player>, With<MoveRight>, Without<MoveLeft>)>,
+    mut non_movers: Query<&mut Velocity, (With<Player>, Without<MoveLeft>, Without<MoveRight>)>,
 ) {
     for mut left_mover in left_movers.iter_mut() {
         left_mover.linvel.x = -PLAYER_MOVE_SPEED;
@@ -891,7 +887,7 @@ fn write_mouse_left_clicks_as_bullets_to_network_fallible(
 
     // offset the bullet so they don't shoot themselves
     let bullet_half_length = 20.;
-    let fudge_factor = 1.;
+    let fudge_factor = 10.;
     let offset = player.0.radius + bullet_half_length + fudge_factor;
     let bullet_position = transform.translation.xy() + aim.clamp_length_min(offset);
 
