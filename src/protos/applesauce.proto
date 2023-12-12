@@ -15,7 +15,7 @@ message Wrapper {
 
 message Player {
   string id = 1;
-  uint32 number = 2;
+  uint32 spawn_id = 2;
   Vec3 position = 3;
   float radius = 4;
   Color color = 5;

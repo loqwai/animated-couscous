@@ -108,7 +108,7 @@ struct Name(String);
 #[derive(Component)]
 struct Player {
     id: String,
-    number: u32,
+    spawn_id: u32,
     color: Color,
     radius: f32,
     fire_timeout: Timer,
@@ -214,7 +214,7 @@ struct BulletSyncEvent {
 #[derive(Event)]
 struct PlayerSyncEvent {
     player_id: String,
-    number: u32,
+    spawn_id: u32,
     position: Vec3,
     radius: f32,
     color: Color,
@@ -350,7 +350,7 @@ fn read_network_messages_to_events(
             Inner::Player(e) => {
                 player_spawn_events.send(PlayerSyncEvent {
                     player_id: e.id,
-                    number: e.number,
+                    spawn_id: e.spawn_id,
                     position: e.position.unwrap().into(),
                     radius: e.radius,
                     color: e.color.unwrap().into(),
@@ -440,7 +440,7 @@ fn handle_broadcast_state_event(
                 .send(
                     applesauce::Player {
                         id: player.id.clone(),
-                        number: player.number,
+                        spawn_id: player.spawn_id,
                         position: applesauce::Vec3::from(transform.translation).into(),
                         color: applesauce::Color::from(player.color).into(),
                         radius: player.radius,
@@ -569,7 +569,7 @@ fn handle_player_sync_events(
         }
 
         if main_player.is_some()
-            && main_player.unwrap().1.number == event.number
+            && main_player.unwrap().1.spawn_id == event.spawn_id
             && main_player.unwrap().1.id != event.player_id
         {
             // we now have a collision. If the other player's ID is lower than ours, then we die and respawn.
@@ -595,7 +595,7 @@ fn handle_player_sync_events(
                 .spawn(PlayerBundle {
                     player: Player {
                         id: event.player_id.clone(),
-                        number: event.number,
+                        spawn_id: event.spawn_id,
                         color: event.color,
                         radius: event.radius,
                         fire_timeout: Timer::new(
@@ -700,22 +700,22 @@ fn ensure_main_player(
     if main_players.iter().count() == 0 {
         let id = uuid::Uuid::new_v4().to_string();
 
-        let other_player_numbers: HashSet<u32> = other_players.iter().map(|p| p.number).collect();
+        let claimed_spawn_ids: HashSet<u32> = other_players.iter().map(|p| p.spawn_id).collect();
 
         // find a spawn that isn't already claimed
         let spawn = player_spawns
             .iter()
-            .find(|s| other_player_numbers.get(&s.player_number).is_none())
+            .find(|s| claimed_spawn_ids.get(&s.id).is_none())
             .expect("Could not find an unclaimed spawn point");
 
-        let number = spawn.player_number;
+        let spawn_id = spawn.id;
 
         commands.spawn(MainPlayerBundle {
             main_player: MainPlayer,
             player_bundle: PlayerBundle {
                 player: Player {
                     id: id.clone(),
-                    number,
+                    spawn_id,
                     color: spawn.color,
                     radius: spawn.radius,
                     fire_timeout: Timer::new(Duration::from_millis(FIRE_TIMEOUT), TimerMode::Once),
@@ -738,7 +738,7 @@ fn ensure_main_player(
             .send(
                 applesauce::Player {
                     id: id.clone(),
-                    number,
+                    spawn_id,
                     position: applesauce::Vec3::from(spawn.position).into(),
                     radius: spawn.radius,
                     color: applesauce::Color::from(spawn.color).into(),
@@ -844,7 +844,7 @@ fn write_keyboard_as_player_to_network_fallible(
             .send(
                 applesauce::Player {
                     id: player.id.clone(),
-                    number: player.number,
+                    spawn_id: player.spawn_id,
                     position: applesauce::Vec3::from(player_transform.translation).into(),
                     radius: player.radius,
                     color: applesauce::Color::from(color).into(),
@@ -863,7 +863,7 @@ fn write_mouse_left_clicks_as_bullets_to_network(
     mouse_button_input: Res<Input<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
-    main_players: Query<(&mut Player, &Transform), With<MainPlayer>>,
+    main_players: Query<(&mut Player, &Transform, &Velocity), With<MainPlayer>>,
     server: Res<NetServer>,
     time: Res<Time>,
 ) {
@@ -881,7 +881,7 @@ fn write_mouse_left_clicks_as_bullets_to_network_fallible(
     mouse_button_input: Res<Input<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
-    mut main_players: Query<(&mut Player, &Transform), With<MainPlayer>>,
+    mut main_players: Query<(&mut Player, &Transform, &Velocity), With<MainPlayer>>,
     server: Res<NetServer>,
     time: Res<Time>,
 ) -> Option<()> {
@@ -909,7 +909,7 @@ fn write_mouse_left_clicks_as_bullets_to_network_fallible(
 
     // offset the bullet so they don't shoot themselves
     let bullet_half_length = 20.;
-    let fudge_factor = 10.;
+    let fudge_factor = 100.;
     let offset = player.0.radius + bullet_half_length + fudge_factor;
     let bullet_position = transform.translation.xy() + aim.clamp_length_min(offset);
 
@@ -921,7 +921,10 @@ fn write_mouse_left_clicks_as_bullets_to_network_fallible(
             applesauce::Bullet {
                 id: uuid::Uuid::new_v4().to_string(),
                 position: applesauce::Vec3::from(transform.translation).into(),
-                velocity: applesauce::Vec3::from(aim.normalize() * BULLET_SPEED).into(),
+                velocity: applesauce::Vec3::from(
+                    player.2.linvel + (aim.normalize() * BULLET_SPEED),
+                )
+                .into(),
                 special_fields: Default::default(),
             }
             .into(),

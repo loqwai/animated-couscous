@@ -18,7 +18,7 @@ const Z_SEPARATION: f32 = 0.01;
 
 #[derive(Component)]
 pub(crate) struct PlayerSpawn {
-    pub player_number: u32,
+    pub id: u32,
     pub position: Vec3,
     pub color: Color,
     pub radius: f32,
@@ -303,7 +303,7 @@ impl<'a> Loader<'a> {
         let color = parse_color(&color_string)?;
 
         self.commands.spawn(PlayerSpawn {
-            player_number,
+            id: player_number,
             position,
             color,
             radius,
