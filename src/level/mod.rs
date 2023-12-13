@@ -16,7 +16,7 @@ const LEVEL_PATH: &str = "assets/level.svg";
 
 const Z_SEPARATION: f32 = 0.01;
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
 pub(crate) struct PlayerSpawn {
     pub id: u32,
     pub position: Vec3,
@@ -176,15 +176,18 @@ impl<'a> Loader<'a> {
 
         let entity = self
             .commands
-            .spawn(MaterialMesh2dBundle {
-                mesh: self
-                    .meshes
-                    .add(shape::Quad::new(Vec2::new(width, height)).into())
-                    .into(),
-                material: self.materials.add(ColorMaterial::from(fill)),
-                transform: Transform::from_translation(Vec3::new(x, y, z)),
-                ..default()
-            })
+            .spawn((
+                MaterialMesh2dBundle {
+                    mesh: self
+                        .meshes
+                        .add(shape::Quad::new(Vec2::new(width, height)).into())
+                        .into(),
+                    material: self.materials.add(ColorMaterial::from(fill)),
+                    transform: Transform::from_translation(Vec3::new(x, y, z)),
+                    ..default()
+                },
+                Name::new("rect"),
+            ))
             .id();
 
         if has_class(attributes, "collider") {
@@ -241,12 +244,15 @@ impl<'a> Loader<'a> {
 
         let entity = self
             .commands
-            .spawn(MaterialMesh2dBundle {
-                mesh: self.meshes.add(shape::Circle::new(radius).into()).into(),
-                material: self.materials.add(ColorMaterial::from(color)),
-                transform: Transform::from_translation(position),
-                ..default()
-            })
+            .spawn((
+                MaterialMesh2dBundle {
+                    mesh: self.meshes.add(shape::Circle::new(radius).into()).into(),
+                    material: self.materials.add(ColorMaterial::from(color)),
+                    transform: Transform::from_translation(position),
+                    ..default()
+                },
+                Name::new("circle"),
+            ))
             .id();
 
         if has_class(attributes, "collider") {
@@ -266,7 +272,7 @@ impl<'a> Loader<'a> {
         let z = self.current_z;
         self.current_z += Z_SEPARATION;
 
-        let player_number: u32 = attributes
+        let id: u32 = attributes
             .get("data-player-number")
             .ok_or(HandlePlayerSpawnError::MissingPlayerNumber)?
             .parse()
@@ -302,12 +308,15 @@ impl<'a> Loader<'a> {
 
         let color = parse_color(&color_string)?;
 
-        self.commands.spawn(PlayerSpawn {
-            id: player_number,
-            position,
-            color,
-            radius,
-        });
+        self.commands.spawn((
+            PlayerSpawn {
+                id,
+                position,
+                color,
+                radius,
+            },
+            Name::new(format!("PlayerSpawn: {}", id)),
+        ));
 
         Ok(())
     }

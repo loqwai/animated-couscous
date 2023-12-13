@@ -10,7 +10,13 @@ message Wrapper {
     Block block = 5;
     DespawnPlayer despawn_player = 6;
     Jump jump = 7;
+    State state = 8;
   }
+}
+
+message State {
+  repeated Player players = 1;
+  repeated Bullet bullets = 2;
 }
 
 message Player {

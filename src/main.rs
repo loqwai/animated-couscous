@@ -5,6 +5,7 @@ mod level;
 mod protos;
 mod server;
 
+use std::f32::consts::PI;
 use std::time::Duration;
 
 use bevy::prelude::*;
@@ -12,6 +13,7 @@ use bevy::sprite::MaterialMesh2dBundle;
 use bevy::utils::HashSet;
 use bevy::window::WindowPlugin;
 use bevy::window::{PrimaryWindow, WindowResolution};
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::plugin::{NoUserData, RapierPhysicsPlugin};
 use bevy_rapier2d::prelude::*;
 use bevy_rapier2d::render::RapierDebugRenderPlugin;
@@ -52,6 +54,7 @@ fn main() {
             }),
             ..Default::default()
         }))
+        .add_plugins(WorldInspectorPlugin::new())
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         .add_plugins(RapierDebugRenderPlugin::default())
         .add_event::<BroadcastStateEvent>()
@@ -84,6 +87,7 @@ fn main() {
                 // Calculate next game state
                 adjust_players_velocity,
                 arc_bullets,
+                assign_main_player,
                 bullet_hit_despawns_player_and_bullet,
                 cleanup_zombies,
                 despawn_shield_on_ttl,
@@ -106,10 +110,7 @@ fn main() {
         .run();
 }
 
-#[derive(Component)]
-struct Name(String);
-
-#[derive(Component)]
+#[derive(Component, Reflect)]
 struct Player {
     id: String,
     spawn_id: u32,
@@ -118,11 +119,12 @@ struct Player {
     fire_timeout: Timer,
 }
 
-#[derive(Component)]
-struct MainPlayer;
+#[derive(Component, Clone)]
+struct MainPlayer(String);
 
 #[derive(Bundle)]
 struct PlayerBundle {
+    name: Name,
     player: Player,
     velocity: Velocity,
     mesh_bundle: MaterialMesh2dBundle<ColorMaterial>,
@@ -167,6 +169,7 @@ struct ShieldBundle {
 
 #[derive(Bundle)]
 struct BulletBundle {
+    name: Name,
     bullet: Bullet,
     mesh_bundle: MaterialMesh2dBundle<ColorMaterial>,
 
@@ -215,6 +218,21 @@ struct BulletSyncEvent {
     velocity: Vec3,
 }
 
+impl From<&applesauce::Bullet> for BulletSyncEvent {
+    fn from(value: &applesauce::Bullet) -> Self {
+        BulletSyncEvent {
+            id: value.id.clone(),
+            position: value.position.clone().unwrap().into(),
+            velocity: value.velocity.clone().unwrap().into(),
+        }
+    }
+}
+impl From<applesauce::Bullet> for BulletSyncEvent {
+    fn from(value: applesauce::Bullet) -> Self {
+        (&value).into()
+    }
+}
+
 #[derive(Event)]
 struct PlayerSyncEvent {
     player_id: String,
@@ -223,6 +241,27 @@ struct PlayerSyncEvent {
     radius: f32,
     color: Color,
     move_data: MoveData,
+}
+
+impl From<&applesauce::Player> for PlayerSyncEvent {
+    fn from(value: &applesauce::Player) -> PlayerSyncEvent {
+        PlayerSyncEvent {
+            player_id: value.id.clone(),
+            spawn_id: value.spawn_id,
+            position: value.position.clone().unwrap().into(),
+            radius: value.radius,
+            color: value.color.clone().unwrap().into(),
+            move_data: MoveData {
+                moving_left: value.move_data.moving_left,
+                moving_right: value.move_data.moving_right,
+            },
+        }
+    }
+}
+impl From<applesauce::Player> for PlayerSyncEvent {
+    fn from(value: applesauce::Player) -> Self {
+        (&value).into()
+    }
 }
 
 #[derive(Event)]
@@ -351,18 +390,8 @@ fn read_network_messages_to_events(
 ) {
     for input in connection.rx.try_iter() {
         match input.inner.unwrap() {
-            Inner::Player(e) => {
-                player_spawn_events.send(PlayerSyncEvent {
-                    player_id: e.id,
-                    spawn_id: e.spawn_id,
-                    position: e.position.unwrap().into(),
-                    radius: e.radius,
-                    color: e.color.unwrap().into(),
-                    move_data: MoveData {
-                        moving_left: e.move_data.moving_left,
-                        moving_right: e.move_data.moving_right,
-                    },
-                });
+            Inner::Player(player) => {
+                player_spawn_events.send(player.into());
             }
             Inner::OutOfSync(_) => {
                 broadcast_state_events.send(BroadcastStateEvent);
@@ -377,16 +406,21 @@ fn read_network_messages_to_events(
                     player_id: e.player_id,
                 });
             }
-            Inner::Bullet(e) => {
-                bullet_sync_events.send(BulletSyncEvent {
-                    id: e.id,
-                    position: e.position.unwrap().into(),
-                    velocity: e.velocity.unwrap().into(),
-                });
+            Inner::Bullet(bullet) => {
+                bullet_sync_events.send(bullet.into());
             }
             Inner::Jump(e) => jump_events.send(JumpEvent {
                 player_id: e.player_id,
             }),
+            Inner::State(state) => {
+                state.players.iter().for_each(|player| {
+                    player_spawn_events.send(player.into());
+                });
+
+                state.bullets.iter().for_each(|bullet| {
+                    bullet_sync_events.send(bullet.into());
+                });
+            }
         }
     }
 }
@@ -436,45 +470,37 @@ fn handle_broadcast_state_event(
 
     broadcast_state_events.clear();
 
-    players
-        .iter()
-        .for_each(|(player, transform, move_left, move_right)| {
-            server
-                .tx
-                .send(
-                    applesauce::Player {
-                        id: player.id.clone(),
-                        spawn_id: player.spawn_id,
-                        position: applesauce::Vec3::from(transform.translation).into(),
-                        color: applesauce::Color::from(player.color).into(),
-                        radius: player.radius,
-                        move_data: applesauce::MoveData::from((
-                            move_left.is_some(),
-                            move_right.is_some(),
-                        ))
-                        .into(),
-                        special_fields: Default::default(),
-                    }
-                    .into(),
-                )
-                .unwrap();
-        });
-
-    /* uncommenting the follow code causes the app to hang occasionally */
-    bullets.iter().for_each(|(bullet, transform, velocity)| {
-        server
-            .tx
-            .send(
-                applesauce::Bullet {
-                    id: bullet.id.clone(),
+    let state = applesauce::State {
+        players: players
+            .iter()
+            .map(
+                |(player, transform, move_left, move_right)| applesauce::Player {
+                    id: player.id.clone(),
+                    spawn_id: player.spawn_id,
                     position: applesauce::Vec3::from(transform.translation).into(),
-                    velocity: applesauce::Vec3::from(velocity.linvel).into(),
+                    color: applesauce::Color::from(player.color).into(),
+                    radius: player.radius,
+                    move_data: applesauce::MoveData::from((
+                        move_left.is_some(),
+                        move_right.is_some(),
+                    ))
+                    .into(),
                     special_fields: Default::default(),
-                }
-                .into(),
+                },
             )
-            .unwrap();
-    });
+            .collect(),
+        bullets: bullets
+            .iter()
+            .map(|(bullet, transform, velocity)| applesauce::Bullet {
+                id: bullet.id.clone(),
+                position: applesauce::Vec3::from(transform.translation).into(),
+                velocity: applesauce::Vec3::from(velocity.linvel).into(),
+                special_fields: Default::default(),
+            })
+            .collect(),
+        special_fields: Default::default(),
+    };
+    server.tx.send(state.into()).unwrap();
 }
 
 fn handle_bullet_sync_events(
@@ -500,6 +526,7 @@ fn handle_bullet_sync_events(
             }
             None => {
                 commands.spawn(BulletBundle {
+                    name: Name::new(format!("Bullet {}", event.id)),
                     bullet: Bullet {
                         id: uuid::Uuid::new_v4().to_string(),
                     },
@@ -563,7 +590,8 @@ fn handle_player_sync_events(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut existing_players: Query<(Entity, &Player, &mut Transform)>,
     main_players: Query<(Entity, &Player), With<MainPlayer>>,
-    mut dead_list: ResMut<DeadList>,
+    dead_list: ResMut<DeadList>,
+    server: ResMut<NetServer>,
 ) {
     let main_player = main_players.get_single().ok();
 
@@ -576,13 +604,14 @@ fn handle_player_sync_events(
             && main_player.unwrap().1.spawn_id == event.spawn_id
             && main_player.unwrap().1.id != event.player_id
         {
+            let main_player_id = main_player.unwrap().1.id.clone();
             // we now have a collision. If the other player's ID is lower than ours, then we die and respawn.
             // otherwise we just ignore the event
-            match main_player.unwrap().1.id.cmp(&event.player_id) {
-                std::cmp::Ordering::Less => {
-                    commands.entity(main_player.unwrap().0).insert(Despawn);
-                    dead_list.0.insert(main_player.unwrap().1.id.clone());
-                }
+            match main_player_id.cmp(&event.player_id) {
+                std::cmp::Ordering::Less => server
+                    .tx
+                    .send(applesauce::DespawnPlayer::from(main_player_id).into())
+                    .unwrap(),
                 _ => continue,
             }
         }
@@ -597,6 +626,7 @@ fn handle_player_sync_events(
             }
             None => commands
                 .spawn(PlayerBundle {
+                    name: Name::new(format!("Player {}", event.player_id)),
                     player: Player {
                         id: event.player_id.clone(),
                         spawn_id: event.spawn_id,
@@ -629,6 +659,29 @@ fn handle_player_sync_events(
             true => commands.entity(entity).insert(MoveRight),
             false => commands.entity(entity).remove::<MoveRight>(),
         };
+    }
+}
+
+fn assign_main_player(
+    mut commands: Commands,
+    unassigned_main_players: Query<(Entity, &MainPlayer), Without<Player>>,
+    players: Query<(Entity, &Player)>,
+) {
+    for (unassigned_main_player_entity, unassigned_main_player) in unassigned_main_players.iter() {
+        match players
+            .iter()
+            .find(|(_, p)| p.id == unassigned_main_player.0)
+        {
+            None => continue,
+            Some((player_entity, _)) => {
+                commands
+                    .entity(player_entity)
+                    .insert(unassigned_main_player.clone());
+                commands
+                    .entity(unassigned_main_player_entity)
+                    .insert(Despawn);
+            }
+        }
     }
 }
 
@@ -694,8 +747,6 @@ fn despawn_shield_on_ttl(
 
 fn ensure_main_player(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
     main_players: Query<Entity, With<MainPlayer>>,
     other_players: Query<&Player, Without<MainPlayer>>,
     player_spawns: Query<&PlayerSpawn>,
@@ -714,28 +765,7 @@ fn ensure_main_player(
 
         let spawn_id = spawn.id;
 
-        commands.spawn(MainPlayerBundle {
-            main_player: MainPlayer,
-            player_bundle: PlayerBundle {
-                player: Player {
-                    id: id.clone(),
-                    spawn_id,
-                    color: spawn.color,
-                    radius: spawn.radius,
-                    fire_timeout: Timer::new(Duration::from_millis(FIRE_TIMEOUT), TimerMode::Once),
-                },
-                body: RigidBody::Dynamic,
-                velocity: Velocity::zero(),
-                collider: Collider::ball(spawn.radius),
-                locked_axis: LockedAxes::ROTATION_LOCKED,
-                mesh_bundle: MaterialMesh2dBundle {
-                    mesh: meshes.add(shape::Circle::new(spawn.radius).into()).into(),
-                    material: materials.add(ColorMaterial::from(spawn.color)),
-                    transform: Transform::from_translation(spawn.position),
-                    ..default()
-                },
-            },
-        });
+        commands.spawn(MainPlayer(id.clone()));
 
         server
             .tx
@@ -780,7 +810,12 @@ fn arc_bullets(mut bullets: Query<(&Transform, &mut Velocity), With<Bullet>>) {
 
         // calculate the angle between the current direction and the direction of travel
         let (_, _, pitch) = current_rotation.to_euler(EulerRot::XYZ);
-        let angle = direction.y.atan2(direction.x) - pitch;
+        let mut angle = direction.y.atan2(direction.x) - pitch;
+
+        // if the angle is greater than PI, then we need to rotate the other way
+        if angle.abs() > PI {
+            angle = -angle;
+        }
 
         // set the bullet's angular velocity so that it turns
         // towards the direction travel

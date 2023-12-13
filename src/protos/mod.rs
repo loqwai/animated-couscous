@@ -122,6 +122,12 @@ impl From<generated::applesauce::Jump> for generated::applesauce::Wrapper {
     }
 }
 
+impl From<generated::applesauce::State> for generated::applesauce::Wrapper {
+    fn from(value: generated::applesauce::State) -> Self {
+        generated::applesauce::wrapper::Inner::State(value).into()
+    }
+}
+
 impl From<generated::applesauce::wrapper::Inner> for generated::applesauce::Wrapper {
     fn from(value: generated::applesauce::wrapper::Inner) -> Self {
         generated::applesauce::Wrapper {
