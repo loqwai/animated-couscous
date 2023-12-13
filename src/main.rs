@@ -26,6 +26,10 @@ const PLAYER_MOVE_SPEED: f32 = 400.;
 const FIRE_TIMEOUT: u64 = 500;
 const JUMP_AMOUNT: f32 = 500.;
 const GRAVITY: f32 = 2000.;
+// How much to displace the bullet from the player so
+// they don't shoot themselves if they're running towards
+// where they're shooting
+const FUDGE_FACTOR: f32 = 1.;
 
 const WINDOW_WIDTH: f32 = 1000.;
 const WINDOW_HEIGHT: f32 = 400.;
@@ -79,7 +83,7 @@ fn main() {
                 // debug_events,
                 // Calculate next game state
                 adjust_players_velocity,
-                // apply_velocity,
+                arc_bullets,
                 bullet_hit_despawns_player_and_bullet,
                 cleanup_zombies,
                 despawn_shield_on_ttl,
@@ -769,6 +773,25 @@ fn adjust_players_velocity(
     }
 }
 
+fn arc_bullets(mut bullets: Query<(&Transform, &mut Velocity), With<Bullet>>) {
+    for (transform, mut velocity) in bullets.iter_mut() {
+        let direction = velocity.linvel.normalize();
+        let current_rotation = transform.rotation;
+
+        // calculate the angle between the current direction and the direction of travel
+        let (_, _, pitch) = current_rotation.to_euler(EulerRot::XYZ);
+        let angle = direction.y.atan2(direction.x) - pitch;
+
+        // set the bullet's angular velocity so that it turns
+        // towards the direction travel
+        // the default angular velocity is too slow, we need it
+        // to be faster without giving the bullet so much rotational
+        // momentum that it starts flinging things across the screen
+        // Therefore, multiply by 10 or so.
+        velocity.angvel = angle * 10.;
+    }
+}
+
 fn shield_blocks_bullets(
     mut commands: Commands,
     bullets: Query<(Entity, &Transform), With<Bullet>>,
@@ -909,8 +932,7 @@ fn write_mouse_left_clicks_as_bullets_to_network_fallible(
 
     // offset the bullet so they don't shoot themselves
     let bullet_half_length = 20.;
-    let fudge_factor = 100.;
-    let offset = player.0.radius + bullet_half_length + fudge_factor;
+    let offset = player.0.radius + bullet_half_length + FUDGE_FACTOR;
     let bullet_position = transform.translation.xy() + aim.clamp_length_min(offset);
 
     transform.translation = Vec3::new(bullet_position.x, bullet_position.y, 0.1);
