@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
-use bevy::utils::HashSet;
+use bevy::utils::{HashMap, HashSet};
 use bevy::window::WindowPlugin;
 use bevy::window::{PrimaryWindow, WindowResolution};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -76,6 +76,7 @@ fn main() {
                 handle_despawn_player_events,
                 handle_jump_events,
                 handle_player_sync_events,
+                assign_main_player.after(handle_player_sync_events),
             ),
         )
         .add_systems(
@@ -87,7 +88,6 @@ fn main() {
                 // Calculate next game state
                 adjust_players_velocity,
                 arc_bullets,
-                assign_main_player,
                 bullet_hit_despawns_player_and_bullet,
                 cleanup_zombies,
                 despawn_shield_on_ttl,
@@ -365,14 +365,14 @@ fn debug_events(
     for _ in i_am_out_of_sync_events.read() {
         println!("i_am_out_of_sync_event");
     }
-    for _ in player_sync_events.read() {
-        println!("player_sync_event");
+    for e in player_sync_events.read() {
+        println!("player_sync_event: {}", e.player_id);
     }
     for _ in block_events.read() {
         println!("block_event");
     }
-    for _ in despawn_player_events.read() {
-        println!("despawn_player_event");
+    for e in despawn_player_events.read() {
+        println!("despawn_player_event: {}", e.player_id);
     }
     for _ in bullet_sync_events.read() {
         println!("bullet_sync_event");
@@ -589,66 +589,86 @@ fn handle_player_sync_events(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut existing_players: Query<(Entity, &Player, &mut Transform)>,
-    main_players: Query<(Entity, &Player), With<MainPlayer>>,
     dead_list: ResMut<DeadList>,
     server: ResMut<NetServer>,
 ) {
-    let main_player = main_players.get_single().ok();
+    let mut occupied_spawns: HashMap<u32, String> = existing_players
+        .iter()
+        .map(|(_, p, _)| (p.spawn_id, p.id.clone()))
+        .collect();
+
+    // it's possible to get two events in one frame to spawn the same player. The existing_players query
+    // will then be out of date and we'll try to spawn the player twice. So we need to keep track of
+    // which players we've already spawned this frame.
+    let existing_player_ids: HashSet<String> = occupied_spawns.values().cloned().collect();
 
     for event in events.read() {
         if dead_list.0.contains(&event.player_id) {
             continue;
         }
 
-        if main_player.is_some()
-            && main_player.unwrap().1.spawn_id == event.spawn_id
-            && main_player.unwrap().1.id != event.player_id
-        {
-            let main_player_id = main_player.unwrap().1.id.clone();
-            // we now have a collision. If the other player's ID is lower than ours, then we die and respawn.
-            // otherwise we just ignore the event
-            match main_player_id.cmp(&event.player_id) {
-                std::cmp::Ordering::Less => server
+        if let Some(occupying_player_id) = occupied_spawns.get(&event.spawn_id) {
+            // we now have a collision. If the occupying player's ID is greather than the new, then
+            // it dies and respawns. Otherwise, we just ignore the event.
+            match occupying_player_id.cmp(&event.player_id) {
+                std::cmp::Ordering::Less => {
+                    server
+                        .tx
+                        .send(applesauce::DespawnPlayer::from(event.player_id.clone()).into())
+                        .unwrap();
+                    continue; // we just announced that this player should despawn, so no need to
+                              // create it if it doesn't already exist
+                }
+                std::cmp::Ordering::Greater => server
                     .tx
-                    .send(applesauce::DespawnPlayer::from(main_player_id).into())
+                    .send(applesauce::DespawnPlayer::from(occupying_player_id.clone()).into())
                     .unwrap(),
-                _ => continue,
+                std::cmp::Ordering::Equal => {} // not really a collision, it's just us.
             }
         }
 
-        let entity = match existing_players
-            .iter_mut()
-            .find(|(_, p, _)| p.id == event.player_id)
-        {
-            Some((entity, _, mut transform)) => {
+        let entity = match (
+            existing_player_ids.contains(&event.player_id),
+            existing_players
+                .iter_mut()
+                .find(|(_, p, _)| p.id == event.player_id),
+        ) {
+            (_, Some((entity, _, mut transform))) => {
                 transform.translation = event.position;
                 entity
             }
-            None => commands
-                .spawn(PlayerBundle {
-                    name: Name::new(format!("Player {}", event.player_id)),
-                    player: Player {
-                        id: event.player_id.clone(),
-                        spawn_id: event.spawn_id,
-                        color: event.color,
-                        radius: event.radius,
-                        fire_timeout: Timer::new(
-                            Duration::from_millis(FIRE_TIMEOUT),
-                            TimerMode::Once,
-                        ),
-                    },
-                    velocity: Velocity::zero(),
-                    body: RigidBody::Dynamic,
-                    collider: Collider::ball(event.radius),
-                    locked_axis: LockedAxes::ROTATION_LOCKED,
-                    mesh_bundle: MaterialMesh2dBundle {
-                        mesh: meshes.add(shape::Circle::new(event.radius).into()).into(),
-                        material: materials.add(ColorMaterial::from(event.color)),
-                        transform: Transform::from_translation(event.position),
-                        ..default()
-                    },
-                })
-                .id(),
+            (true, None) => {
+                continue;
+            } // we must have spawned this player already this frame
+            (false, None) => {
+                occupied_spawns.insert(event.spawn_id, event.player_id.clone());
+
+                commands
+                    .spawn(PlayerBundle {
+                        name: Name::new(format!("Player {}", event.player_id)),
+                        player: Player {
+                            id: event.player_id.clone(),
+                            spawn_id: event.spawn_id,
+                            color: event.color,
+                            radius: event.radius,
+                            fire_timeout: Timer::new(
+                                Duration::from_millis(FIRE_TIMEOUT),
+                                TimerMode::Once,
+                            ),
+                        },
+                        velocity: Velocity::zero(),
+                        body: RigidBody::Dynamic,
+                        collider: Collider::ball(event.radius),
+                        locked_axis: LockedAxes::ROTATION_LOCKED,
+                        mesh_bundle: MaterialMesh2dBundle {
+                            mesh: meshes.add(shape::Circle::new(event.radius).into()).into(),
+                            material: materials.add(ColorMaterial::from(event.color)),
+                            transform: Transform::from_translation(event.position),
+                            ..default()
+                        },
+                    })
+                    .id()
+            }
         };
 
         match event.move_data.moving_left {
@@ -665,23 +685,41 @@ fn handle_player_sync_events(
 fn assign_main_player(
     mut commands: Commands,
     unassigned_main_players: Query<(Entity, &MainPlayer), Without<Player>>,
-    players: Query<(Entity, &Player)>,
+    players: Query<(Entity, &Player), Without<MainPlayer>>,
+    dead_list: Res<DeadList>,
 ) {
     for (unassigned_main_player_entity, unassigned_main_player) in unassigned_main_players.iter() {
-        match players
-            .iter()
-            .find(|(_, p)| p.id == unassigned_main_player.0)
-        {
-            None => continue,
-            Some((player_entity, _)) => {
-                commands
-                    .entity(player_entity)
-                    .insert(unassigned_main_player.clone());
-                commands
-                    .entity(unassigned_main_player_entity)
-                    .insert(Despawn);
-            }
+        if dead_list.0.contains(&unassigned_main_player.0) {
+            println!(
+                "Tried to assign main player to a dead player: {}",
+                unassigned_main_player.0
+            );
+
+            commands
+                .entity(unassigned_main_player_entity)
+                .insert(Despawn);
+            continue;
         }
+
+        let player = players
+            .iter()
+            .find(|(_, p)| p.id == unassigned_main_player.0);
+
+        if player.is_none() {
+            println!(
+                "Tried to assign main player to a player that doesn't exist yet: {}",
+                unassigned_main_player.0
+            );
+            continue;
+        }
+
+        commands
+            .entity(player.unwrap().0)
+            .insert(unassigned_main_player.clone());
+
+        commands
+            .entity(unassigned_main_player_entity)
+            .insert(Despawn);
     }
 }
 
@@ -747,42 +785,42 @@ fn despawn_shield_on_ttl(
 
 fn ensure_main_player(
     mut commands: Commands,
-    main_players: Query<Entity, With<MainPlayer>>,
+    main_players: Query<Entity, (With<Player>, With<MainPlayer>)>,
     other_players: Query<&Player, Without<MainPlayer>>,
     player_spawns: Query<&PlayerSpawn>,
     server: Res<NetServer>,
 ) {
-    if main_players.iter().count() == 0 {
-        let id = uuid::Uuid::new_v4().to_string();
-
-        let claimed_spawn_ids: HashSet<u32> = other_players.iter().map(|p| p.spawn_id).collect();
-
-        // find a spawn that isn't already claimed
-        let spawn = player_spawns
-            .iter()
-            .find(|s| claimed_spawn_ids.get(&s.id).is_none())
-            .expect("Could not find an unclaimed spawn point");
-
-        let spawn_id = spawn.id;
-
-        commands.spawn(MainPlayer(id.clone()));
-
-        server
-            .tx
-            .send(
-                applesauce::Player {
-                    id: id.clone(),
-                    spawn_id,
-                    position: applesauce::Vec3::from(spawn.position).into(),
-                    radius: spawn.radius,
-                    color: applesauce::Color::from(spawn.color).into(),
-                    move_data: applesauce::MoveData::from((false, false)).into(),
-                    special_fields: Default::default(),
-                }
-                .into(),
-            )
-            .unwrap();
+    if !main_players.is_empty() {
+        return;
     }
+
+    let id = uuid::Uuid::new_v4().to_string();
+
+    let claimed_spawn_ids: HashSet<u32> = other_players.iter().map(|p| p.spawn_id).collect();
+
+    // find a spawn that isn't already claimed
+    let spawn = player_spawns
+        .iter()
+        .find(|s| claimed_spawn_ids.get(&s.id).is_none())
+        .expect("Could not find an unclaimed spawn point");
+
+    commands.spawn(MainPlayer(id.clone()));
+
+    server
+        .tx
+        .send(
+            applesauce::Player {
+                id: id.clone(),
+                spawn_id: spawn.id,
+                position: applesauce::Vec3::from(spawn.position).into(),
+                radius: spawn.radius,
+                color: applesauce::Color::from(spawn.color).into(),
+                move_data: applesauce::MoveData::from((false, false)).into(),
+                special_fields: Default::default(),
+            }
+            .into(),
+        )
+        .unwrap();
 }
 
 fn adjust_players_velocity(
