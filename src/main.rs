@@ -1,8 +1,10 @@
 #[macro_use]
 extern crate derive_error;
 
+mod game_state;
 mod level;
 mod protos;
+mod render;
 mod server;
 
 use std::f32::consts::PI;
@@ -18,10 +20,12 @@ use bevy_rapier2d::plugin::{NoUserData, RapierPhysicsPlugin};
 use bevy_rapier2d::prelude::*;
 use bevy_rapier2d::render::RapierDebugRenderPlugin;
 use crossbeam_channel::{Receiver, Sender};
+use game_state::{BulletState, GameStateEvent, PlayerState};
 use level::PlayerSpawn;
 use protos::generated::applesauce::wrapper::Inner;
 
 use protos::generated::applesauce::{self};
+use render::RenderPlugin;
 
 const BULLET_SPEED: f32 = 1000.;
 const PLAYER_MOVE_SPEED: f32 = 400.;
@@ -57,6 +61,7 @@ fn main() {
         .add_plugins(WorldInspectorPlugin::new())
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         .add_plugins(RapierDebugRenderPlugin::default())
+        .add_plugins(RenderPlugin)
         .add_event::<BroadcastStateEvent>()
         .add_event::<IAmOutOfSyncEvent>()
         .add_event::<PlayerSyncEvent>()
@@ -64,6 +69,7 @@ fn main() {
         .add_event::<JumpEvent>()
         .add_event::<DespawnPlayerEvent>()
         .add_event::<BulletSyncEvent>()
+        .add_event::<GameStateEvent>()
         .add_systems(Startup, (setup, start_local_server, load_level))
         .add_systems(
             PreUpdate,
@@ -93,6 +99,7 @@ fn main() {
                 despawn_shield_on_ttl,
                 ensure_main_player,
                 shield_blocks_bullets,
+                write_game_state,
             ),
         )
         .add_systems(
@@ -127,7 +134,7 @@ struct PlayerBundle {
     name: Name,
     player: Player,
     velocity: Velocity,
-    mesh_bundle: MaterialMesh2dBundle<ColorMaterial>,
+    transform: TransformBundle,
     body: RigidBody,
     collider: Collider,
     locked_axis: LockedAxes,
@@ -162,7 +169,6 @@ struct Despawn;
 struct ShieldBundle {
     shield: Shield,
     mesh_bundle: MaterialMesh2dBundle<ColorMaterial>,
-
     // physics
     collider: Collider,
 }
@@ -171,7 +177,7 @@ struct ShieldBundle {
 struct BulletBundle {
     name: Name,
     bullet: Bullet,
-    mesh_bundle: MaterialMesh2dBundle<ColorMaterial>,
+    transform: TransformBundle,
 
     // physics
     active_events: ActiveEvents,
@@ -506,8 +512,6 @@ fn handle_broadcast_state_event(
 fn handle_bullet_sync_events(
     mut commands: Commands,
     mut events: EventReader<BulletSyncEvent>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
     mut bullets: Query<(&Bullet, &mut Transform, &mut Velocity)>,
     dead_list: Res<DeadList>,
 ) {
@@ -535,18 +539,11 @@ fn handle_bullet_sync_events(
                     ccd: Ccd::enabled(),
                     collider: Collider::cuboid(20., 5.),
                     velocity: Velocity::linear(event.velocity.xy()),
-                    mesh_bundle: MaterialMesh2dBundle {
-                        mesh: meshes
-                            .add(shape::Quad::new(Vec2::new(40., 10.)).into())
-                            .into(),
-                        material: materials.add(ColorMaterial::from(Color::WHITE)),
-                        transform: Transform {
-                            translation: event.position,
-                            rotation,
-                            ..default()
-                        },
-                        ..default()
-                    },
+                    transform: TransformBundle::from_transform(Transform {
+                        translation: event.position,
+                        rotation,
+                        ..Default::default()
+                    }),
                 });
             }
         };
@@ -586,8 +583,6 @@ fn handle_jump_events(
 fn handle_player_sync_events(
     mut commands: Commands,
     mut events: EventReader<PlayerSyncEvent>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
     mut existing_players: Query<(Entity, &Player, &mut Transform)>,
     main_players: Query<(Entity, &Player), With<MainPlayer>>,
     dead_list: ResMut<DeadList>,
@@ -641,12 +636,9 @@ fn handle_player_sync_events(
                     body: RigidBody::Dynamic,
                     collider: Collider::ball(event.radius),
                     locked_axis: LockedAxes::ROTATION_LOCKED,
-                    mesh_bundle: MaterialMesh2dBundle {
-                        mesh: meshes.add(shape::Circle::new(event.radius).into()).into(),
-                        material: materials.add(ColorMaterial::from(event.color)),
-                        transform: Transform::from_translation(event.position),
-                        ..default()
-                    },
+                    transform: TransformBundle::from_transform(Transform::from_translation(
+                        event.position,
+                    )),
                 })
                 .id(),
         };
@@ -841,6 +833,33 @@ fn shield_blocks_bullets(
     }
 }
 
+fn write_game_state(
+    mut game_states: EventWriter<GameStateEvent>,
+    time: Res<Time>,
+    players: Query<(&Player, &GlobalTransform)>,
+    bullets: Query<(&Bullet, &GlobalTransform)>,
+) {
+    game_states.send(GameStateEvent {
+        timestamp: time.elapsed().as_millis(),
+        players: players
+            .iter()
+            .map(|(player, transform)| PlayerState {
+                id: player.id.clone(),
+                transform: transform.clone().into(),
+                radius: player.radius,
+                color: player.color,
+            })
+            .collect(),
+        bullets: bullets
+            .iter()
+            .map(|(bullet, transform)| BulletState {
+                id: bullet.id.clone(),
+                transform: transform.clone().into(),
+            })
+            .collect(),
+    })
+}
+
 fn write_i_am_out_of_sync_events_to_network(
     server: ResMut<NetServer>,
     mut out_of_sync_events: EventReader<IAmOutOfSyncEvent>,
@@ -856,8 +875,7 @@ fn write_i_am_out_of_sync_events_to_network(
 
 fn write_keyboard_as_player_to_network(
     windows: Query<&Window, With<PrimaryWindow>>,
-    main_players: Query<(&Transform, &Player, &Handle<ColorMaterial>), With<MainPlayer>>,
-    colors: Res<Assets<ColorMaterial>>,
+    main_players: Query<(&Transform, &Player), With<MainPlayer>>,
     keyboard_input: Res<Input<KeyCode>>,
     server: Res<NetServer>,
 
@@ -867,7 +885,6 @@ fn write_keyboard_as_player_to_network(
     write_keyboard_as_player_to_network_fallible(
         windows,
         main_players,
-        colors,
         keyboard_input,
         server,
         left_movers,
@@ -877,8 +894,7 @@ fn write_keyboard_as_player_to_network(
 
 fn write_keyboard_as_player_to_network_fallible(
     windows: Query<&Window, With<PrimaryWindow>>,
-    main_players: Query<(&Transform, &Player, &Handle<ColorMaterial>), With<MainPlayer>>,
-    colors: Res<Assets<ColorMaterial>>,
+    main_players: Query<(&Transform, &Player), With<MainPlayer>>,
     keyboard_input: Res<Input<KeyCode>>,
     server: Res<NetServer>,
 
@@ -890,8 +906,7 @@ fn write_keyboard_as_player_to_network_fallible(
     let player_moving_left = left_movers.get_single().is_ok();
     let player_moving_right = right_movers.get_single().is_ok();
 
-    let (player_transform, player, color_handle) = main_players.get_single().ok()?;
-    let color = colors.get(color_handle).unwrap().color;
+    let (transform, player) = main_players.get_single().ok()?;
 
     let a_pressed = keyboard_input.pressed(KeyCode::A);
     let d_pressed = keyboard_input.pressed(KeyCode::D);
@@ -903,9 +918,9 @@ fn write_keyboard_as_player_to_network_fallible(
                 applesauce::Player {
                     id: player.id.clone(),
                     spawn_id: player.spawn_id,
-                    position: applesauce::Vec3::from(player_transform.translation).into(),
+                    position: applesauce::Vec3::from(transform.translation).into(),
                     radius: player.radius,
-                    color: applesauce::Color::from(color).into(),
+                    color: applesauce::Color::from(player.color).into(),
                     move_data: applesauce::MoveData::from((a_pressed, d_pressed)).into(),
                     special_fields: Default::default(),
                 }

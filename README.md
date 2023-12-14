@@ -1,6 +1,5 @@
 # animated-couscous
 
-
 ## Install
 
 ### Ubuntu
@@ -12,7 +11,7 @@ sudo apt-get update && apt install build-essential g++ pkg-config libx11-dev lib
 
 The system has 6 essential jobs:
 
-1. Render a given state
+1. Render a given state (convert state into ECS components)
 2. Send inputs to the network
 3. Receive inputs from the network
 4. Calculate the next state
