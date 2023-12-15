@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use bevy::{prelude::*, utils::HashSet};
 use bevy_rapier2d::prelude::*;
 use uuid::Uuid;
@@ -37,7 +39,7 @@ impl Plugin for ManageStatePlugin {
                     handle_player_shoot_event,
                 ),
             )
-            .add_systems(Update, bullets_despawn_on_collision)
+            .add_systems(Update, (arc_bullets, bullets_despawn_on_collision))
             .add_systems(PostUpdate, despawn_things_that_need_despawning);
     }
 }
@@ -258,6 +260,33 @@ fn handle_player_shoot_event(
                 });
             }
         };
+    }
+}
+
+fn arc_bullets(mut bullets: Query<(&Transform, &mut Velocity), With<Bullet>>) {
+    for (transform, mut velocity) in bullets.iter_mut() {
+        let direction = velocity.linvel.normalize();
+        let current_rotation = transform.rotation;
+
+        // calculate the angle between the current direction and the direction of travel
+        let (_, _, pitch) = current_rotation.to_euler(EulerRot::XYZ);
+        let mut angle = direction.y.atan2(direction.x) - pitch;
+
+        // angle is now a value between -2 * PI and 2 * PI. We want to normalize it
+        // to be between -PI and PI
+        if angle > PI {
+            angle -= 2. * PI;
+        } else if angle < -PI {
+            angle += 2. * PI;
+        }
+
+        // set the bullet's angular velocity so that it turns
+        // towards the direction travel
+        // the default angular velocity is too slow, we need it
+        // to be faster without giving the bullet so much rotational
+        // momentum that it starts flinging things across the screen
+        // Therefore, multiply by 10 or so.
+        velocity.angvel = angle * 10.;
     }
 }
 
