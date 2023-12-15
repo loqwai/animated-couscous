@@ -39,7 +39,14 @@ impl Plugin for ManageStatePlugin {
                     handle_player_shoot_event,
                 ),
             )
-            .add_systems(Update, (arc_bullets, bullets_despawn_on_collision))
+            .add_systems(
+                Update,
+                (
+                    arc_bullets,
+                    bullets_despawn_on_collision_with_anything,
+                    players_despawn_on_collision_with_bullets,
+                ),
+            )
             .add_systems(PostUpdate, despawn_things_that_need_despawning);
     }
 }
@@ -290,7 +297,7 @@ fn arc_bullets(mut bullets: Query<(&Transform, &mut Velocity), With<Bullet>>) {
     }
 }
 
-fn bullets_despawn_on_collision(
+fn bullets_despawn_on_collision_with_anything(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
     bullets: Query<Entity, With<Bullet>>,
@@ -306,6 +313,31 @@ fn bullets_despawn_on_collision(
                 if bullets.get(*e2).is_ok() {
                     commands.entity(*e2).insert(Despawn);
                 }
+            }
+        }
+    }
+}
+
+fn players_despawn_on_collision_with_bullets(
+    mut commands: Commands,
+    mut collision_events: EventReader<CollisionEvent>,
+    players: Query<Entity, With<Player>>,
+    bullets: Query<Entity, With<Bullet>>,
+) {
+    for collision in collision_events.read() {
+        match collision {
+            CollisionEvent::Stopped(_, _, _) => continue,
+            CollisionEvent::Started(e1, e2, _) => {
+                if bullets.get(*e1).or_else(|_| bullets.get(*e2)).is_err() {
+                    continue;
+                }
+
+                let player = match players.get(*e1).or_else(|_| players.get(*e2)) {
+                    Ok(player) => player,
+                    Err(_) => continue,
+                };
+
+                commands.entity(player).insert(Despawn);
             }
         }
     }
