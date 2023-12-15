@@ -7,24 +7,17 @@ message GameState {
 }
 
 
-// message Wrapper {
-//   string id = 1;
+message Input {
+  string client_id = 1;
 
-//   oneof inner {
-//     Player player = 2;
-//     OutOfSync out_of_sync = 3;
-//     Bullet bullet = 4;
-//     Block block = 5;
-//     DespawnPlayer despawn_player = 6;
-//     Jump jump = 7;
-//     State state = 8;
-//   }
-// }
-
-// message State {
-//   repeated Player players = 1;
-//   repeated Bullet bullets = 2;
-// }
+  oneof inner {
+    Spawn spawn = 2;
+    MoveLeft move_left = 3;
+    MoveRight move_right = 4;
+    Jump jump = 5;
+    Shoot shoot = 6;
+  }
+}
 
 message Player {
   string id = 1;
@@ -40,11 +33,6 @@ message Bullet {
   Vec3 position = 2;
 }
 
-// message MoveData {
-//   bool moving_left = 1;
-//   bool moving_right = 2;
-// }
-
 message Vec3 {
   float x = 1;
   float y = 2;
@@ -57,17 +45,11 @@ message Color {
   float b = 3;
 }
 
-// message Block {
-//   string player_id = 1;
-// }
 
-// message OutOfSync {}
-
-// message DespawnPlayer {
-//   string player_id = 1;
-// }
-
-
-// message Jump {
-//   string player_id = 1;
-// }
+message Spawn {}
+message MoveLeft {}
+message MoveRight {}
+message Jump {}
+message Shoot {
+  Vec3 aim = 1;
+}

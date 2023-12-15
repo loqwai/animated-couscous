@@ -1,10 +1,14 @@
 use std::{net::TcpStream, thread};
 
 use bevy::prelude::*;
-use crossbeam_channel::Receiver;
-use protobuf::CodedInputStream;
+use crossbeam_channel::{Receiver, Sender};
+use protobuf::{CodedInputStream, Message};
 
 use crate::{
+    events::{
+        PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent, PlayerShootEvent,
+        PlayerSpawnEvent,
+    },
     manage_state::{Player, PlayerBundle},
     protos::generated::applesauce,
 };
@@ -25,7 +29,10 @@ impl Plugin for ClientPlugin {
             hostname: self.hostname.clone(),
         })
         .add_systems(Startup, connect_to_server)
-        .add_systems(Update, update_game_state_from_network);
+        .add_systems(
+            Update,
+            (update_game_state_from_network, write_inputs_to_network),
+        );
     }
 }
 
@@ -37,24 +44,37 @@ struct ClientConfig {
 #[derive(Resource)]
 struct ReceiveGameState(Receiver<applesauce::GameState>);
 
+#[derive(Resource)]
+struct SendInput(Sender<applesauce::Input>);
+
 fn connect_to_server(mut commands: Commands, config: Res<ClientConfig>) {
     let stream = TcpStream::connect(config.hostname.clone()).unwrap();
     let (tx_game_state, rx_game_state) = crossbeam_channel::unbounded::<applesauce::GameState>();
+    let (tx_input, rx_input) = crossbeam_channel::unbounded::<applesauce::Input>();
 
     commands.insert_resource(ReceiveGameState(rx_game_state));
+    commands.insert_resource(SendInput(tx_input));
 
+    let mut recv_stream = stream.try_clone().unwrap();
     thread::spawn(move || {
-        let mut stream = stream.try_clone().unwrap();
-        let mut stream = CodedInputStream::new(&mut stream);
+        let mut coded_stream = CodedInputStream::new(&mut recv_stream);
 
         loop {
-            if stream.eof().unwrap() {
+            if coded_stream.eof().unwrap() {
                 break;
             }
 
-            let game_state: applesauce::GameState = stream.read_message().unwrap();
+            let game_state: applesauce::GameState = coded_stream.read_message().unwrap();
             tx_game_state.send(game_state).unwrap();
         }
+    });
+
+    let mut send_stream = stream.try_clone().unwrap();
+    thread::spawn(move || loop {
+        let input = rx_input.recv().unwrap();
+        input
+            .write_length_delimited_to_writer(&mut send_stream)
+            .unwrap();
     });
 }
 
@@ -97,4 +117,33 @@ fn update_game_state_from_network(
             }
         }
     };
+}
+
+fn write_inputs_to_network(
+    sender: Res<SendInput>,
+    mut spawn_events: EventReader<PlayerSpawnEvent>,
+    mut move_left_events: EventReader<PlayerMoveLeftEvent>,
+    mut move_right_events: EventReader<PlayerMoveRightEvent>,
+    mut jump_events: EventReader<PlayerJumpEvent>,
+    mut shoot_events: EventReader<PlayerShootEvent>,
+) {
+    for event in spawn_events.read() {
+        sender.0.send(event.into()).unwrap();
+    }
+
+    for event in move_left_events.read() {
+        sender.0.send(event.into()).unwrap();
+    }
+
+    for event in move_right_events.read() {
+        sender.0.send(event.into()).unwrap();
+    }
+
+    for event in jump_events.read() {
+        sender.0.send(event.into()).unwrap();
+    }
+
+    for event in shoot_events.read() {
+        sender.0.send(event.into()).unwrap();
+    }
 }

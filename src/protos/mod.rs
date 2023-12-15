@@ -1,3 +1,9 @@
+use bevy::prelude::default;
+
+use crate::events::{
+    PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent, PlayerShootEvent, PlayerSpawnEvent,
+};
+
 pub mod generated {
     include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 }
@@ -30,6 +36,12 @@ impl Into<bevy::prelude::Vec3> for generated::applesauce::Vec3 {
     }
 }
 
+impl Into<bevy::prelude::Vec2> for generated::applesauce::Vec3 {
+    fn into(self) -> bevy::prelude::Vec2 {
+        bevy::prelude::Vec2::new(self.x, self.y)
+    }
+}
+
 impl Into<protobuf::MessageField<generated::applesauce::Vec3>> for generated::applesauce::Vec3 {
     fn into(self) -> protobuf::MessageField<generated::applesauce::Vec3> {
         protobuf::MessageField(Some(Box::new(self)))
@@ -59,81 +71,65 @@ impl Into<protobuf::MessageField<generated::applesauce::Color>> for generated::a
     }
 }
 
-// impl From<(bool, bool)> for generated::applesauce::MoveData {
-//     fn from((moving_left, moving_right): (bool, bool)) -> Self {
-//         Self {
-//             moving_left,
-//             moving_right,
-//             special_fields: Default::default(),
-//         }
-//     }
-// }
+impl From<&PlayerSpawnEvent> for generated::applesauce::Input {
+    fn from(value: &PlayerSpawnEvent) -> Self {
+        generated::applesauce::Input {
+            client_id: value.client_id.to_string(),
+            inner: Some(generated::applesauce::input::Inner::Spawn(
+                generated::applesauce::Spawn::default(),
+            )),
+            special_fields: default(),
+        }
+    }
+}
 
-// impl Into<protobuf::MessageField<generated::applesauce::MoveData>>
-//     for generated::applesauce::MoveData
-// {
-//     fn into(self) -> protobuf::MessageField<generated::applesauce::MoveData> {
-//         protobuf::MessageField(Some(Box::new(self)))
-//     }
-// }
+impl From<&PlayerMoveLeftEvent> for generated::applesauce::Input {
+    fn from(value: &PlayerMoveLeftEvent) -> Self {
+        generated::applesauce::Input {
+            client_id: value.client_id.to_string(),
+            inner: Some(generated::applesauce::input::Inner::MoveLeft(
+                generated::applesauce::MoveLeft::default(),
+            )),
+            special_fields: default(),
+        }
+    }
+}
 
-// impl From<String> for generated::applesauce::DespawnPlayer {
-//     fn from(player_id: String) -> Self {
-//         Self {
-//             player_id,
-//             special_fields: Default::default(),
-//         }
-//     }
-// }
+impl From<&PlayerMoveRightEvent> for generated::applesauce::Input {
+    fn from(value: &PlayerMoveRightEvent) -> Self {
+        generated::applesauce::Input {
+            client_id: value.client_id.to_string(),
+            inner: Some(generated::applesauce::input::Inner::MoveRight(
+                generated::applesauce::MoveRight::default(),
+            )),
+            special_fields: default(),
+        }
+    }
+}
 
-// impl From<generated::applesauce::DespawnPlayer> for generated::applesauce::Wrapper {
-//     fn from(value: generated::applesauce::DespawnPlayer) -> Self {
-//         generated::applesauce::wrapper::Inner::DespawnPlayer(value).into()
-//     }
-// }
+impl From<&PlayerJumpEvent> for generated::applesauce::Input {
+    fn from(value: &PlayerJumpEvent) -> Self {
+        generated::applesauce::Input {
+            client_id: value.client_id.to_string(),
+            inner: Some(generated::applesauce::input::Inner::Jump(
+                generated::applesauce::Jump::default(),
+            )),
+            special_fields: default(),
+        }
+    }
+}
 
-// impl From<generated::applesauce::Bullet> for generated::applesauce::Wrapper {
-//     fn from(value: generated::applesauce::Bullet) -> Self {
-//         generated::applesauce::wrapper::Inner::Bullet(value).into()
-//     }
-// }
-
-// impl From<generated::applesauce::Block> for generated::applesauce::Wrapper {
-//     fn from(value: generated::applesauce::Block) -> Self {
-//         generated::applesauce::wrapper::Inner::Block(value).into()
-//     }
-// }
-
-// impl From<generated::applesauce::Player> for generated::applesauce::Wrapper {
-//     fn from(value: generated::applesauce::Player) -> Self {
-//         generated::applesauce::wrapper::Inner::Player(value).into()
-//     }
-// }
-
-// impl From<generated::applesauce::OutOfSync> for generated::applesauce::Wrapper {
-//     fn from(value: generated::applesauce::OutOfSync) -> Self {
-//         generated::applesauce::wrapper::Inner::OutOfSync(value).into()
-//     }
-// }
-
-// impl From<generated::applesauce::Jump> for generated::applesauce::Wrapper {
-//     fn from(value: generated::applesauce::Jump) -> Self {
-//         generated::applesauce::wrapper::Inner::Jump(value).into()
-//     }
-// }
-
-// impl From<generated::applesauce::State> for generated::applesauce::Wrapper {
-//     fn from(value: generated::applesauce::State) -> Self {
-//         generated::applesauce::wrapper::Inner::State(value).into()
-//     }
-// }
-
-// impl From<generated::applesauce::wrapper::Inner> for generated::applesauce::Wrapper {
-//     fn from(value: generated::applesauce::wrapper::Inner) -> Self {
-//         generated::applesauce::Wrapper {
-//             id: uuid::Uuid::new_v4().to_string(),
-//             inner: Some(value),
-//             special_fields: Default::default(),
-//         }
-//     }
-// }
+impl From<&PlayerShootEvent> for generated::applesauce::Input {
+    fn from(value: &PlayerShootEvent) -> Self {
+        generated::applesauce::Input {
+            client_id: value.client_id.to_string(),
+            inner: Some(generated::applesauce::input::Inner::Shoot(
+                generated::applesauce::Shoot {
+                    aim: generated::applesauce::Vec3::from(value.aim).into(),
+                    special_fields: default(),
+                },
+            )),
+            special_fields: default(),
+        }
+    }
+}
