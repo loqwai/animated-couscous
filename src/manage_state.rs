@@ -1,5 +1,6 @@
 use bevy::{prelude::*, utils::HashSet};
 use bevy_rapier2d::prelude::*;
+use uuid::Uuid;
 
 use crate::{
     events::{
@@ -15,6 +16,7 @@ pub(crate) struct ManageStatePlugin;
 impl Plugin for ManageStatePlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         app.add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
+            .add_plugins(RapierDebugRenderPlugin::default())
             .add_event::<PlayerSpawnEvent>()
             .add_event::<PlayerMoveLeftEvent>()
             .add_event::<PlayerMoveRightEvent>()
@@ -38,9 +40,9 @@ impl Plugin for ManageStatePlugin {
     }
 }
 
-#[derive(Component, Reflect)]
+#[derive(Component, Default, Reflect)]
 pub(crate) struct Player {
-    // id: String,
+    pub(crate) id: String,
     pub(crate) spawn_id: String,
     pub(crate) client_id: String,
     pub(crate) radius: f32,
@@ -48,19 +50,36 @@ pub(crate) struct Player {
 }
 
 #[derive(Bundle)]
-struct PlayerBundle {
-    name: Name,
-    player: Player,
-    rigid_body: RigidBody,
-    collider: Collider,
-    transform: TransformBundle,
-    velocity: Velocity,
-    external_impulse: ExternalImpulse,
-    locked_axes: LockedAxes,
+pub(crate) struct PlayerBundle {
+    pub(crate) name: Name,
+    pub(crate) player: Player,
+    pub(crate) rigid_body: RigidBody,
+    pub(crate) collider: Collider,
+    pub(crate) transform: TransformBundle,
+    pub(crate) velocity: Velocity,
+    pub(crate) external_impulse: ExternalImpulse,
+    pub(crate) locked_axes: LockedAxes,
+}
+
+impl PlayerBundle {
+    pub(crate) fn new(player: Player, transform: Transform) -> Self {
+        Self {
+            name: Name::new(format!("Player {}", player.client_id)),
+            collider: Collider::ball(player.radius),
+            player,
+            rigid_body: RigidBody::Dynamic,
+            transform: TransformBundle::from_transform(transform),
+            locked_axes: LockedAxes::ROTATION_LOCKED,
+            velocity: Velocity::default(),
+            external_impulse: Default::default(),
+        }
+    }
 }
 
 #[derive(Component, Reflect)]
-pub(crate) struct Bullet;
+pub(crate) struct Bullet {
+    pub(crate) id: String,
+}
 
 #[derive(Bundle)]
 struct BulletBundle {
@@ -132,24 +151,16 @@ fn handle_player_spawn_event(
             }
             Some(spawn) => {
                 println!("Spawn player at spawn point {}", spawn.id);
-                commands.spawn(PlayerBundle {
-                    name: Name::new(format!("Player {}", event.client_id)),
-                    player: Player {
-                        // id: Uuid::new_v4().to_string(),
+                commands.spawn(PlayerBundle::new(
+                    Player {
+                        id: Uuid::new_v4().to_string(),
                         spawn_id: spawn.id.to_string(),
                         client_id: event.client_id.to_string(),
                         radius: spawn.radius,
                         color: Color::rgb(1., 0., 0.),
                     },
-                    rigid_body: RigidBody::Dynamic,
-                    collider: Collider::ball(spawn.radius),
-                    transform: TransformBundle::from_transform(Transform::from_translation(
-                        spawn.position,
-                    )),
-                    velocity: Velocity::default(),
-                    external_impulse: ExternalImpulse::default(),
-                    locked_axes: LockedAxes::ROTATION_LOCKED,
-                });
+                    Transform::from_translation(spawn.position),
+                ));
             }
         }
     }
@@ -215,6 +226,8 @@ fn handle_player_shoot_event(
         match players.iter().find(|(p, _)| p.client_id == event.client_id) {
             None => continue,
             Some((player, transform)) => {
+                // TODO: Implement fire timeout
+
                 let bullet_half_length = 20.;
                 let offset = player.radius + bullet_half_length + config.fudge_factor;
                 let bullet_position =
@@ -224,7 +237,9 @@ fn handle_player_shoot_event(
                 let rotation = Quat::from_rotation_z(velocity.y.atan2(velocity.x));
 
                 commands.spawn(BulletBundle {
-                    bullet: Bullet,
+                    bullet: Bullet {
+                        id: Uuid::new_v4().to_string(),
+                    },
                     rigid_body: RigidBody::Dynamic,
                     collider: Collider::cuboid(20., 5.),
                     transform: TransformBundle::from_transform(Transform {

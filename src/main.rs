@@ -8,17 +8,22 @@ mod level;
 mod manage_state;
 mod render;
 
+mod client;
+mod protos;
+mod server;
+
 use bevy::prelude::*;
 use bevy::window::WindowPlugin;
 use bevy::window::WindowResolution;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
-use bevy_rapier2d::render::RapierDebugRenderPlugin;
+use client::ClientPlugin;
 use input::InputPlugin;
 // use game_state::GameStateEvent;
 use manage_state::ManageStatePlugin;
 
 use render::RenderPlugin;
+use server::ServerPlugin;
 use uuid::Uuid;
 
 fn main() {
@@ -30,38 +35,44 @@ fn main() {
     let width: f32 = 1000.;
     let height: f32 = 400.;
 
-    App::new()
-        .insert_resource(AppConfig {
-            width,
-            height,
+    let mut app = App::new();
+    app.insert_resource(AppConfig {
+        width,
+        height,
 
-            client_id: Uuid::new_v4().to_string(),
-            // not implemented yet
-            fudge_factor: 1.,
-            bullet_speed: 1000.,
-            player_move_speed: 400.,
-            // fire_timeout: 500,
-            jump_amount: 50.,
-            gravity: 2000.,
-        })
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                resolution: WindowResolution::new(width, height),
-                position: WindowPosition::new(IVec2 {
-                    x: 0,
-                    y: window_offset,
-                }),
-                ..Default::default()
+        client_id: Uuid::new_v4().to_string(),
+        // not implemented yet
+        fudge_factor: 1.,
+        bullet_speed: 1000.,
+        player_move_speed: 400.,
+        // fire_timeout: 500,
+        jump_amount: 50.,
+        gravity: 2000.,
+    })
+    .add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            resolution: WindowResolution::new(width, height),
+            position: WindowPosition::new(IVec2 {
+                x: 0,
+                y: window_offset,
             }),
             ..Default::default()
-        }))
-        .add_plugins(WorldInspectorPlugin::new())
-        .add_plugins(RapierDebugRenderPlugin::default())
-        .add_plugins(RenderPlugin)
-        .add_plugins(ManageStatePlugin)
-        .add_plugins(InputPlugin)
-        // .add_event::<GameStateEvent>()
-        .run();
+        }),
+        ..Default::default()
+    }))
+    .add_plugins(WorldInspectorPlugin::new())
+    .add_plugins(RenderPlugin)
+    .add_plugins(InputPlugin);
+
+    if let Ok(hostname) = std::env::var("SERVE_ON") {
+        app.add_plugins((ServerPlugin::serve_on(hostname), ManageStatePlugin));
+    }
+
+    if let Ok(hostname) = std::env::var("CONNECT_TO") {
+        app.add_plugins(ClientPlugin::connect_to(hostname));
+    }
+
+    app.run();
 }
 
 #[derive(Resource)]

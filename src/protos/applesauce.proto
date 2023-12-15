@@ -1,37 +1,49 @@
 syntax = "proto3";
 
-message Wrapper {
-  string id = 1;
-
-  oneof inner {
-    Player player = 2;
-    OutOfSync out_of_sync = 3;
-    Bullet bullet = 4;
-    Block block = 5;
-    DespawnPlayer despawn_player = 6;
-    Jump jump = 7;
-    State state = 8;
-  }
+message GameState {
+  uint64 timestamp = 1;
+  repeated Player players = 2;
+  repeated Bullet bullets = 3;
 }
 
-message State {
-  repeated Player players = 1;
-  repeated Bullet bullets = 2;
-}
+
+// message Wrapper {
+//   string id = 1;
+
+//   oneof inner {
+//     Player player = 2;
+//     OutOfSync out_of_sync = 3;
+//     Bullet bullet = 4;
+//     Block block = 5;
+//     DespawnPlayer despawn_player = 6;
+//     Jump jump = 7;
+//     State state = 8;
+//   }
+// }
+
+// message State {
+//   repeated Player players = 1;
+//   repeated Bullet bullets = 2;
+// }
 
 message Player {
   string id = 1;
-  uint32 spawn_id = 2;
-  Vec3 position = 3;
+  string client_id = 2;
+  string spawn_id = 3;
   float radius = 4;
   Color color = 5;
-  MoveData move_data = 6;
+  Vec3 position = 6;
 }
 
-message MoveData {
-  bool moving_left = 1;
-  bool moving_right = 2;
+message Bullet {
+  string id = 1;
+  Vec3 position = 2;
 }
+
+// message MoveData {
+//   bool moving_left = 1;
+//   bool moving_right = 2;
+// }
 
 message Vec3 {
   float x = 1;
@@ -45,22 +57,17 @@ message Color {
   float b = 3;
 }
 
-message Block {
-  string player_id = 1;
-}
+// message Block {
+//   string player_id = 1;
+// }
 
-message OutOfSync {}
+// message OutOfSync {}
 
-message DespawnPlayer {
-  string player_id = 1;
-}
+// message DespawnPlayer {
+//   string player_id = 1;
+// }
 
-message Bullet {
-  string id = 1;
-  Vec3 position = 2;
-  Vec3 velocity = 3;
-}
 
-message Jump {
-  string player_id = 1;
-}
+// message Jump {
+//   string player_id = 1;
+// }
