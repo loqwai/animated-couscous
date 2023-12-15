@@ -25,3 +25,8 @@ Only job 6 will be allowed to modify any ECS components and it must do so in a s
 Job 4 will maintain the state outside of Bevy components. The state will be network serializable so that it can be easily sent to the clients.
 
 For now, the application will take a CLI flag to enable the server. In the future, we may want to have all clients run the server and elect a leader, or have them run in "lockstep" and reconcile differences using a CRDT.
+
+
+## Notes
+
+I think maybe #1 would not be given a state event, but should rather augment game components with whatever they need to be able to render on screen.

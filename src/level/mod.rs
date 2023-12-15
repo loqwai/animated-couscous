@@ -18,7 +18,7 @@ const Z_SEPARATION: f32 = 0.01;
 
 #[derive(Component, Reflect)]
 pub(crate) struct PlayerSpawn {
-    pub id: u32,
+    pub id: String,
     pub position: Vec3,
     pub color: Color,
     pub radius: f32,
@@ -272,11 +272,10 @@ impl<'a> Loader<'a> {
         let z = self.current_z;
         self.current_z += Z_SEPARATION;
 
-        let id: u32 = attributes
+        let id: String = attributes
             .get("data-player-number")
             .ok_or(HandlePlayerSpawnError::MissingPlayerNumber)?
-            .parse()
-            .or(Err(HandlePlayerSpawnError::InvalidPlayerNumber))?;
+            .to_string();
 
         let r: f32 = attributes
             .get("r")
@@ -309,13 +308,13 @@ impl<'a> Loader<'a> {
         let color = parse_color(&color_string)?;
 
         self.commands.spawn((
+            Name::new(format!("PlayerSpawn: {}", id)),
             PlayerSpawn {
                 id,
                 position,
                 color,
                 radius,
             },
-            Name::new(format!("PlayerSpawn: {}", id)),
         ));
 
         Ok(())
@@ -398,7 +397,6 @@ pub(crate) enum HandlePlayerSpawnError {
     InvalidCy,
     InvalidR,
     MissingFill,
-    InvalidPlayerNumber,
     MissingPlayerNumber,
     AdjustmentError(AdjustmentError),
     InvalidFill(csscolorparser::ParseColorError),
