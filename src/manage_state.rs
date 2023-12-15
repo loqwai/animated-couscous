@@ -36,9 +36,14 @@ impl Plugin for ManageStatePlugin {
                     handle_player_jump_event,
                     handle_player_shoot_event,
                 ),
-            );
+            )
+            .add_systems(Update, bullets_despawn_on_collision)
+            .add_systems(PostUpdate, despawn_things_that_need_despawning);
     }
 }
+
+#[derive(Component, Reflect)]
+struct Despawn;
 
 #[derive(Component, Default, Reflect)]
 pub(crate) struct Player {
@@ -50,7 +55,7 @@ pub(crate) struct Player {
 }
 
 #[derive(Bundle)]
-pub(crate) struct PlayerBundle {
+struct PlayerBundle {
     pub(crate) name: Name,
     pub(crate) player: Player,
     pub(crate) rigid_body: RigidBody,
@@ -88,6 +93,7 @@ struct BulletBundle {
     collider: Collider,
     transform: TransformBundle,
     velocity: Velocity,
+    active_events: ActiveEvents,
 }
 
 fn load_level(
@@ -248,8 +254,39 @@ fn handle_player_shoot_event(
                         ..default()
                     }),
                     velocity: Velocity::linear(velocity),
+                    active_events: ActiveEvents::COLLISION_EVENTS,
                 });
             }
         };
+    }
+}
+
+fn bullets_despawn_on_collision(
+    mut commands: Commands,
+    mut collision_events: EventReader<CollisionEvent>,
+    bullets: Query<Entity, With<Bullet>>,
+) {
+    for collision in collision_events.read() {
+        match collision {
+            CollisionEvent::Stopped(_, _, _) => continue,
+            CollisionEvent::Started(e1, e2, _) => {
+                if bullets.get(*e1).is_ok() {
+                    commands.entity(*e1).insert(Despawn);
+                }
+
+                if bullets.get(*e2).is_ok() {
+                    commands.entity(*e2).insert(Despawn);
+                }
+            }
+        }
+    }
+}
+
+fn despawn_things_that_need_despawning(
+    mut commands: Commands,
+    entities: Query<Entity, With<Despawn>>,
+) {
+    for entity in entities.iter() {
+        commands.entity(entity).despawn_recursive();
     }
 }
