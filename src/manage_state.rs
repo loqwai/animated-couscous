@@ -157,7 +157,7 @@ fn handle_player_spawn_event(
                         spawn_id: spawn.id.to_string(),
                         client_id: event.client_id.to_string(),
                         radius: spawn.radius,
-                        color: Color::rgb(1., 0., 0.),
+                        color: spawn.color,
                     },
                     Transform::from_translation(spawn.position),
                 ));

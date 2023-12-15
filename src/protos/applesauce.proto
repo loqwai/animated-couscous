@@ -31,12 +31,20 @@ message Player {
 message Bullet {
   string id = 1;
   Vec3 position = 2;
+  Quat rotation = 3;
 }
 
 message Vec3 {
   float x = 1;
   float y = 2;
   float z = 3;
+}
+
+message Quat {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+  float w = 4;
 }
 
 message Color {

@@ -48,6 +48,30 @@ impl Into<protobuf::MessageField<generated::applesauce::Vec3>> for generated::ap
     }
 }
 
+impl From<bevy::prelude::Quat> for generated::applesauce::Quat {
+    fn from(v: bevy::prelude::Quat) -> Self {
+        Self {
+            x: v.x,
+            y: v.y,
+            z: v.z,
+            w: v.w,
+            special_fields: Default::default(),
+        }
+    }
+}
+
+impl Into<protobuf::MessageField<generated::applesauce::Quat>> for generated::applesauce::Quat {
+    fn into(self) -> protobuf::MessageField<generated::applesauce::Quat> {
+        protobuf::MessageField(Some(Box::new(self)))
+    }
+}
+
+impl Into<bevy::prelude::Quat> for generated::applesauce::Quat {
+    fn into(self) -> bevy::prelude::Quat {
+        bevy::prelude::Quat::from_xyzw(self.x, self.y, self.z, self.w)
+    }
+}
+
 impl From<bevy::prelude::Color> for generated::applesauce::Color {
     fn from(v: bevy::prelude::Color) -> Self {
         Self {

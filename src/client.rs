@@ -9,8 +9,10 @@ use crate::{
         PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent, PlayerShootEvent,
         PlayerSpawnEvent,
     },
-    manage_state::{Player, PlayerBundle},
+    level,
+    manage_state::{Bullet, Player, PlayerBundle},
     protos::generated::applesauce,
+    AppConfig,
 };
 
 pub(crate) struct ClientPlugin {
@@ -28,7 +30,7 @@ impl Plugin for ClientPlugin {
         app.insert_resource(ClientConfig {
             hostname: self.hostname.clone(),
         })
-        .add_systems(Startup, connect_to_server)
+        .add_systems(Startup, (load_level, connect_to_server))
         .add_systems(
             Update,
             (update_game_state_from_network, write_inputs_to_network),
@@ -47,10 +49,20 @@ struct ReceiveGameState(Receiver<applesauce::GameState>);
 #[derive(Resource)]
 struct SendInput(Sender<applesauce::Input>);
 
+fn load_level(
+    commands: Commands,
+    config: Res<AppConfig>,
+    meshes: ResMut<Assets<Mesh>>,
+    materials: ResMut<Assets<ColorMaterial>>,
+) {
+    level::load_level(commands, meshes, materials, config.width, config.height)
+        .expect("Failed to load level");
+}
+
 fn connect_to_server(mut commands: Commands, config: Res<ClientConfig>) {
     let stream = TcpStream::connect(config.hostname.clone()).unwrap();
-    let (tx_game_state, rx_game_state) = crossbeam_channel::unbounded::<applesauce::GameState>();
-    let (tx_input, rx_input) = crossbeam_channel::unbounded::<applesauce::Input>();
+    let (tx_game_state, rx_game_state) = crossbeam_channel::bounded::<applesauce::GameState>(10);
+    let (tx_input, rx_input) = crossbeam_channel::bounded::<applesauce::Input>(10);
 
     commands.insert_resource(ReceiveGameState(rx_game_state));
     commands.insert_resource(SendInput(tx_input));
@@ -81,7 +93,8 @@ fn connect_to_server(mut commands: Commands, config: Res<ClientConfig>) {
 fn update_game_state_from_network(
     mut commands: Commands,
     receiver: Res<ReceiveGameState>,
-    mut players: Query<(&mut Player, &mut Transform)>,
+    players: Query<(&mut Player, &mut Transform), Without<Bullet>>,
+    bullets: Query<(&mut Bullet, &mut Transform), Without<Player>>,
 ) {
     match receiver
         .0
@@ -90,33 +103,63 @@ fn update_game_state_from_network(
     {
         None => return,
         Some(game_state) => {
-            for player_state in game_state.players.iter() {
-                match players.iter_mut().find(|(p, _)| p.id == player_state.id) {
-                    None => {
-                        commands.spawn(PlayerBundle::new(
-                            Player {
-                                id: player_state.id.clone(),
-                                client_id: player_state.client_id.clone(),
-                                spawn_id: player_state.spawn_id.clone(),
-                                radius: player_state.radius,
-                                color: player_state.color.clone().unwrap().into(),
-                            },
-                            Transform::from_translation(
-                                player_state.position.clone().unwrap().into(),
-                            ),
-                        ));
-                    }
-                    Some((mut player, mut transform)) => {
-                        player.client_id = player_state.client_id.clone();
-                        player.spawn_id = player_state.spawn_id.clone();
-                        player.radius = player_state.radius;
-                        player.color = player_state.color.clone().unwrap().into();
-                        transform.translation = player_state.position.clone().unwrap().into();
-                    }
-                }
+            update_bullets(&game_state, bullets, &mut commands);
+            update_players(&game_state, players, &mut commands);
+        }
+    }
+}
+
+fn update_bullets(
+    game_state: &applesauce::GameState,
+    mut bullets: Query<'_, '_, (&mut Bullet, &mut Transform), Without<Player>>,
+    commands: &mut Commands<'_, '_>,
+) {
+    for bullet_state in game_state.bullets.iter() {
+        match bullets.iter_mut().find(|(b, _)| b.id == bullet_state.id) {
+            None => {
+                commands.spawn((
+                    Bullet {
+                        id: bullet_state.id.clone(),
+                    },
+                    Transform::from_translation(bullet_state.position.clone().unwrap().into()),
+                ));
+            }
+            Some((_, mut transform)) => {
+                transform.translation = bullet_state.position.clone().unwrap().into();
+                transform.rotation = bullet_state.rotation.clone().unwrap().into();
             }
         }
-    };
+    }
+}
+
+fn update_players(
+    game_state: &applesauce::GameState,
+    mut players: Query<'_, '_, (&mut Player, &mut Transform), Without<Bullet>>,
+    commands: &mut Commands<'_, '_>,
+) {
+    for player_state in game_state.players.iter() {
+        match players.iter_mut().find(|(p, _)| p.id == player_state.id) {
+            None => {
+                commands.spawn(PlayerBundle::new(
+                    Player {
+                        id: player_state.id.clone(),
+                        client_id: player_state.client_id.clone(),
+                        spawn_id: player_state.spawn_id.clone(),
+                        radius: player_state.radius,
+                        color: player_state.color.clone().unwrap().into(),
+                    },
+                    Transform::from_translation(player_state.position.clone().unwrap().into()),
+                ));
+            }
+            Some((mut player, mut transform)) => {
+                player.client_id = player_state.client_id.clone();
+                player.spawn_id = player_state.spawn_id.clone();
+                player.radius = player_state.radius;
+                player.color = player_state.color.clone().unwrap().into();
+                transform.translation = player_state.position.clone().unwrap().into();
+            }
+        }
+    }
 }
 
 fn write_inputs_to_network(

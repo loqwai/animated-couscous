@@ -54,10 +54,10 @@ struct InputReceiver(Receiver<applesauce::Input>);
 fn serve(mut commands: Commands, config: Res<ServerConfig>) {
     let listener = TcpListener::bind(config.hostname.clone()).unwrap();
 
-    let (tx_game_state, rx_game_state) = crossbeam_channel::unbounded::<applesauce::GameState>();
+    let (tx_game_state, rx_game_state) = crossbeam_channel::bounded::<applesauce::GameState>(1);
     commands.insert_resource(GameStateSender(tx_game_state));
 
-    let (tx_input, rx_input) = crossbeam_channel::unbounded::<applesauce::Input>();
+    let (tx_input, rx_input) = crossbeam_channel::bounded::<applesauce::Input>(1);
     commands.insert_resource(InputReceiver(rx_input));
 
     thread::spawn(move || {
@@ -158,6 +158,7 @@ fn send_state(
                 .map(|(bullet, transform)| applesauce::Bullet {
                     id: bullet.id.to_string(),
                     position: applesauce::Vec3::from(transform.translation.clone()).into(),
+                    rotation: applesauce::Quat::from(transform.rotation.clone()).into(),
                     special_fields: default(),
                 })
                 .collect(),
