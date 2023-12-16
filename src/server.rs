@@ -55,37 +55,41 @@ struct InputReceiver(Receiver<applesauce::Input>);
 fn serve(mut commands: Commands, config: Res<ServerConfig>) {
     let listener = TcpListener::bind(config.hostname.clone()).unwrap();
 
-    let (tx_game_state, rx_game_state) = crossbeam_channel::bounded::<applesauce::GameState>(1);
+    let (tx_game_state, rx_game_state) = crossbeam_channel::unbounded::<applesauce::GameState>();
     commands.insert_resource(GameStateSender(tx_game_state));
 
-    let (tx_input, rx_input) = crossbeam_channel::bounded::<applesauce::Input>(1);
+    let (tx_input, rx_input) = crossbeam_channel::unbounded::<applesauce::Input>();
     commands.insert_resource(InputReceiver(rx_input));
+
+    let (tx_stream, rx_stream) = crossbeam_channel::unbounded::<TcpStream>();
 
     thread::spawn(move || {
         for stream in listener.incoming() {
             let stream = stream.unwrap();
 
-            let send_stream = stream.try_clone().unwrap();
-            let rx_game_state = rx_game_state.clone();
-
             let recv_stream = stream.try_clone().unwrap();
             let tx_input = tx_input.clone();
 
-            thread::spawn(move || forward_game_state_to_stream(send_stream, rx_game_state));
+            tx_stream.send(stream.try_clone().unwrap()).unwrap();
             thread::spawn(move || read_network_input_events(recv_stream, tx_input));
         }
     });
-}
 
-fn forward_game_state_to_stream(
-    mut stream: TcpStream,
-    rx_game_state: Receiver<applesauce::GameState>,
-) {
-    for game_state in rx_game_state.iter() {
-        game_state
-            .write_length_delimited_to_writer(&mut stream)
-            .unwrap();
-    }
+    thread::spawn(move || {
+        let mut streams: Vec<TcpStream> = vec![];
+
+        for game_state in rx_game_state.iter() {
+            for stream in rx_stream.try_iter() {
+                streams.push(stream);
+            }
+
+            for mut stream in streams.iter() {
+                game_state
+                    .write_length_delimited_to_writer(&mut stream)
+                    .unwrap();
+            }
+        }
+    });
 }
 
 fn read_network_input_events(mut stream: TcpStream, tx_input: Sender<applesauce::Input>) {

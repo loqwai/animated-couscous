@@ -54,8 +54,8 @@ struct SendInput(Sender<applesauce::Input>);
 
 fn connect_to_server(mut commands: Commands, config: Res<ClientConfig>) {
     let stream = TcpStream::connect(config.hostname.clone()).unwrap();
-    let (tx_game_state, rx_game_state) = crossbeam_channel::bounded::<applesauce::GameState>(10);
-    let (tx_input, rx_input) = crossbeam_channel::bounded::<applesauce::Input>(10);
+    let (tx_game_state, rx_game_state) = crossbeam_channel::unbounded::<applesauce::GameState>();
+    let (tx_input, rx_input) = crossbeam_channel::unbounded::<applesauce::Input>();
 
     commands.insert_resource(ReceiveGameState(rx_game_state));
     commands.insert_resource(SendInput(tx_input));
