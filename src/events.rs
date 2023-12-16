@@ -25,3 +25,8 @@ pub(crate) struct PlayerShootEvent {
     pub(crate) client_id: String,
     pub(crate) aim: Vec2,
 }
+
+#[derive(Event)]
+pub(crate) struct PlayerBlockEvent {
+    pub(crate) client_id: String,
+}

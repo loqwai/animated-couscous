@@ -1,7 +1,8 @@
 use bevy::{prelude::default, transform::components::Transform};
 
 use crate::events::{
-    PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent, PlayerShootEvent, PlayerSpawnEvent,
+    PlayerBlockEvent, PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent, PlayerShootEvent,
+    PlayerSpawnEvent,
 };
 
 pub mod generated {
@@ -174,6 +175,18 @@ impl From<&PlayerShootEvent> for generated::applesauce::Input {
                     aim: generated::applesauce::Vec3::from(value.aim).into(),
                     special_fields: default(),
                 },
+            )),
+            special_fields: default(),
+        }
+    }
+}
+
+impl From<&PlayerBlockEvent> for generated::applesauce::Input {
+    fn from(value: &PlayerBlockEvent) -> Self {
+        generated::applesauce::Input {
+            client_id: value.client_id.to_string(),
+            inner: Some(generated::applesauce::input::Inner::Block(
+                generated::applesauce::Block::default(),
             )),
             special_fields: default(),
         }

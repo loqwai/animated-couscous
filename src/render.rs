@@ -3,14 +3,21 @@ use bevy::{
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
 };
 
-use crate::manage_state::{Bullet, Player};
+use crate::manage_state::{Bullet, Player, Shield};
 
 pub(crate) struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup);
-        app.add_systems(Update, (ensure_players_render, ensure_bullets_render));
+        app.add_systems(
+            Update,
+            (
+                ensure_players_render,
+                ensure_bullets_render,
+                ensure_shields_render,
+            ),
+        );
     }
 }
 
@@ -46,6 +53,22 @@ fn ensure_bullets_render(
                 .add(shape::Quad::new(Vec2::new(40., 10.)).into())
                 .into(),
             material: materials.add(ColorMaterial::from(Color::WHITE)),
+            transform: transform.clone(),
+            ..default()
+        });
+    }
+}
+
+fn ensure_shields_render(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    shields: Query<(Entity, &Shield, &Transform), Without<Mesh2dHandle>>,
+) {
+    for (entity, shield, transform) in shields.iter() {
+        commands.entity(entity).insert(MaterialMesh2dBundle {
+            mesh: meshes.add(shape::Circle::new(shield.radius).into()).into(),
+            material: materials.add(ColorMaterial::from(Color::rgba(1., 1., 1., 0.1))),
             transform: transform.clone(),
             ..default()
         });

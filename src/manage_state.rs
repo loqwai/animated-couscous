@@ -9,8 +9,8 @@ use uuid::Uuid;
 
 use crate::{
     events::{
-        PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent, PlayerShootEvent,
-        PlayerSpawnEvent,
+        PlayerBlockEvent, PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent,
+        PlayerShootEvent, PlayerSpawnEvent,
     },
     level::{self, PlayerSpawn},
     AppConfig,
@@ -28,6 +28,7 @@ impl Plugin for ManageStatePlugin {
             .add_event::<PlayerMoveRightEvent>()
             .add_event::<PlayerJumpEvent>()
             .add_event::<PlayerShootEvent>()
+            .add_event::<PlayerBlockEvent>()
             .add_systems(Startup, (load_level, configure_gravity))
             .add_systems(
                 First,
@@ -36,6 +37,8 @@ impl Plugin for ManageStatePlugin {
                     reset_vertical_impulse,
                     update_players_from_game_state_event,
                     update_bullets_from_game_state_event,
+                    advance_fire_timeout,
+                    advance_shield_timeout,
                 ),
             )
             .add_systems(
@@ -46,15 +49,16 @@ impl Plugin for ManageStatePlugin {
                     handle_player_move_right_event,
                     handle_player_jump_event,
                     handle_player_shoot_event,
+                    handle_player_block_event,
                 ),
             )
             .add_systems(
                 Update,
                 (
-                    advance_fire_timeout,
                     arc_bullets,
                     bullets_despawn_on_collision_with_anything,
                     players_despawn_on_collision_with_bullets,
+                    shields_despawn_on_timeout,
                 ),
             )
             .add_systems(PostUpdate, despawn_things_that_need_despawning);
@@ -83,6 +87,19 @@ pub(crate) struct BulletState {
     pub(crate) velocity: Vec2,
 }
 
+#[derive(Component)]
+pub(crate) struct Shield {
+    ttl: Timer,
+    pub(crate) radius: f32,
+}
+
+#[derive(Bundle)]
+struct ShieldBundle {
+    shield: Shield,
+    collider: Collider,
+    transform: TransformBundle,
+}
+
 #[derive(Component, Reflect)]
 struct Despawn;
 
@@ -98,6 +115,9 @@ pub(crate) struct Player {
 #[derive(Component, Reflect)]
 pub(crate) struct FireTimeout(Timer);
 
+#[derive(Component, Reflect)]
+pub(crate) struct ShieldTimeout(Timer);
+
 #[derive(Bundle)]
 struct PlayerBundle {
     name: Name,
@@ -107,18 +127,28 @@ struct PlayerBundle {
     transform: TransformBundle,
     velocity: Velocity,
     fire_timeout: FireTimeout,
+    shield_timeout: ShieldTimeout,
     external_impulse: ExternalImpulse,
     locked_axes: LockedAxes,
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(player: Player, transform: Transform, fire_timeout: u64) -> Self {
+    pub(crate) fn new(
+        player: Player,
+        transform: Transform,
+        fire_timeout: u64,
+        shield_timeout: u64,
+    ) -> Self {
         Self {
             name: Name::new(format!("Player {}", player.client_id)),
             collider: Collider::ball(player.radius),
             player,
             fire_timeout: FireTimeout(Timer::new(
                 Duration::from_millis(fire_timeout),
+                TimerMode::Once,
+            )),
+            shield_timeout: ShieldTimeout(Timer::new(
+                Duration::from_millis(shield_timeout),
                 TimerMode::Once,
             )),
             rigid_body: RigidBody::Dynamic,
@@ -219,6 +249,7 @@ fn update_players_from_game_state_event(
                             },
                             Transform::from_translation(player_state.position.clone()),
                             config.fire_timeout,
+                            config.shield_timeout,
                         ));
                     }
                 }
@@ -309,6 +340,7 @@ fn handle_player_spawn_event(
                     },
                     Transform::from_translation(spawn.position),
                     config.fire_timeout,
+                    config.shield_timeout,
                 ));
             }
         }
@@ -371,6 +403,12 @@ fn advance_fire_timeout(mut fire_timeouts: Query<&mut FireTimeout>, time: Res<Ti
     }
 }
 
+fn advance_shield_timeout(mut shield_timeouts: Query<&mut ShieldTimeout>, time: Res<Time>) {
+    for mut shield_timeout in shield_timeouts.iter_mut() {
+        shield_timeout.0.tick(time.delta());
+    }
+}
+
 fn handle_player_shoot_event(
     mut commands: Commands,
     mut events: EventReader<PlayerShootEvent>,
@@ -408,6 +446,47 @@ fn handle_player_shoot_event(
                     },
                     velocity,
                 ));
+            }
+        };
+    }
+}
+
+fn handle_player_block_event(
+    mut commands: Commands,
+    mut events: EventReader<PlayerBlockEvent>,
+    mut players: Query<(Entity, &Player, &mut ShieldTimeout)>,
+    config: Res<AppConfig>,
+) {
+    for event in events.read() {
+        match players
+            .iter_mut()
+            .find(|p| p.1.client_id == event.client_id)
+        {
+            None => continue,
+            Some((entity, player, mut shield_timeout)) => {
+                if !shield_timeout.0.finished() {
+                    continue;
+                }
+
+                shield_timeout.0.reset();
+                let radius = player.radius + 10.;
+                let shield = commands
+                    .spawn(ShieldBundle {
+                        shield: Shield {
+                            radius,
+                            ttl: Timer::new(
+                                Duration::from_millis(config.shield_duration),
+                                TimerMode::Once,
+                            ),
+                        },
+                        collider: Collider::ball(radius),
+                        transform: TransformBundle::from_transform(Transform::from_translation(
+                            Vec3::new(0., 0., 0.2),
+                        )),
+                    })
+                    .id();
+
+                commands.entity(entity).add_child(shield)
             }
         };
     }
@@ -464,8 +543,9 @@ fn bullets_despawn_on_collision_with_anything(
 fn players_despawn_on_collision_with_bullets(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
-    players: Query<Entity, With<Player>>,
+    players: Query<(Entity, &Children), With<Player>>,
     bullets: Query<Entity, With<Bullet>>,
+    shields: Query<&Shield>,
 ) {
     for collision in collision_events.read() {
         match collision {
@@ -475,13 +555,32 @@ fn players_despawn_on_collision_with_bullets(
                     continue;
                 }
 
-                let player = match players.get(*e1).or_else(|_| players.get(*e2)) {
+                let (entity, children) = match players.get(*e1).or_else(|_| players.get(*e2)) {
                     Ok(player) => player,
                     Err(_) => continue,
                 };
 
-                commands.entity(player).insert(Despawn);
+                let shield = children.iter().find(|child| shields.get(**child).is_ok());
+                if shield.is_some() {
+                    continue;
+                }
+
+                commands.entity(entity).insert(Despawn);
             }
+        }
+    }
+}
+
+fn shields_despawn_on_timeout(
+    mut commands: Commands,
+    mut shields: Query<(Entity, &mut Shield)>,
+    time: Res<Time>,
+) {
+    for (entity, mut shield) in shields.iter_mut() {
+        shield.ttl.tick(time.delta());
+
+        if shield.ttl.finished() {
+            commands.entity(entity).insert(Despawn);
         }
     }
 }

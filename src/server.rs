@@ -10,8 +10,8 @@ use protobuf::{CodedInputStream, Message};
 
 use crate::{
     events::{
-        PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent, PlayerShootEvent,
-        PlayerSpawnEvent,
+        PlayerBlockEvent, PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent,
+        PlayerShootEvent, PlayerSpawnEvent,
     },
     manage_state::{Bullet, Player},
     protos::generated::applesauce,
@@ -112,6 +112,7 @@ fn recv_input(
     mut move_right_events: EventWriter<PlayerMoveRightEvent>,
     mut jump_events: EventWriter<PlayerJumpEvent>,
     mut shoot_events: EventWriter<PlayerShootEvent>,
+    mut block_events: EventWriter<PlayerBlockEvent>,
 ) {
     receiver.0.try_iter().for_each(|input| match input.inner {
         Some(applesauce::input::Inner::Spawn(_)) => spawn_events.send(PlayerSpawnEvent {
@@ -131,6 +132,9 @@ fn recv_input(
         Some(applesauce::input::Inner::Shoot(shoot)) => shoot_events.send(PlayerShootEvent {
             client_id: input.client_id,
             aim: shoot.aim.unwrap().into(),
+        }),
+        Some(applesauce::input::Inner::Block(_)) => block_events.send(PlayerBlockEvent {
+            client_id: input.client_id,
         }),
         None => {}
     });

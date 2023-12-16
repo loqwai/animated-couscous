@@ -2,8 +2,8 @@ use bevy::{prelude::*, window::PrimaryWindow};
 
 use crate::{
     events::{
-        PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent, PlayerShootEvent,
-        PlayerSpawnEvent,
+        PlayerBlockEvent, PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent,
+        PlayerShootEvent, PlayerSpawnEvent,
     },
     manage_state::Player,
     AppConfig,
@@ -18,6 +18,7 @@ impl Plugin for InputPlugin {
             .add_event::<PlayerMoveRightEvent>()
             .add_event::<PlayerJumpEvent>()
             .add_event::<PlayerShootEvent>()
+            .add_event::<PlayerBlockEvent>()
             .add_systems(
                 PreUpdate,
                 (
@@ -25,7 +26,8 @@ impl Plugin for InputPlugin {
                     on_a_send_player_move_left,
                     on_d_send_player_move_right,
                     on_space_send_player_jump,
-                    on_click_send_player_shoot_event,
+                    on_left_click_send_player_shoot_event,
+                    on_right_click_send_player_block,
                 ),
             );
     }
@@ -79,7 +81,7 @@ fn on_space_send_player_jump(
     }
 }
 
-fn on_click_send_player_shoot_event(
+fn on_left_click_send_player_shoot_event(
     config: Res<AppConfig>,
     mouse_button_input: Res<Input<MouseButton>>,
     events: EventWriter<PlayerShootEvent>,
@@ -87,7 +89,7 @@ fn on_click_send_player_shoot_event(
     cameras: Query<(&Camera, &GlobalTransform)>,
     players: Query<(&Player, &Transform)>,
 ) {
-    on_click_send_player_shoot_event_fallible(
+    on_left_click_send_player_shoot_event_fallible(
         config,
         mouse_button_input,
         events,
@@ -97,7 +99,7 @@ fn on_click_send_player_shoot_event(
     );
 }
 
-fn on_click_send_player_shoot_event_fallible(
+fn on_left_click_send_player_shoot_event_fallible(
     config: Res<AppConfig>,
     mouse_button_input: Res<Input<MouseButton>>,
     mut events: EventWriter<PlayerShootEvent>,
@@ -129,4 +131,18 @@ fn on_click_send_player_shoot_event_fallible(
     });
 
     None
+}
+
+fn on_right_click_send_player_block(
+    config: Res<AppConfig>,
+    mouse_button_input: Res<Input<MouseButton>>,
+    mut events: EventWriter<PlayerBlockEvent>,
+) {
+    if !mouse_button_input.just_pressed(MouseButton::Right) {
+        return;
+    };
+
+    events.send(PlayerBlockEvent {
+        client_id: config.client_id.to_string(),
+    });
 }

@@ -42,12 +42,15 @@ fn main() {
 
         client_id: Uuid::new_v4().to_string(),
         // not implemented yet
-        fudge_factor: 1.,
+        fudge_factor: 11.,
         bullet_speed: 1000.,
         player_move_speed: 400.,
         fire_timeout: 500,
         jump_amount: 50.,
         gravity: 2000.,
+
+        shield_timeout: 1000,
+        shield_duration: 50000,
     })
     .add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
@@ -92,4 +95,7 @@ struct AppConfig {
     fire_timeout: u64,
     jump_amount: f32,
     gravity: f32,
+
+    shield_timeout: u64,
+    shield_duration: u64,
 }

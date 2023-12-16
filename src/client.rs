@@ -6,8 +6,8 @@ use protobuf::{CodedInputStream, Message};
 
 use crate::{
     events::{
-        PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent, PlayerShootEvent,
-        PlayerSpawnEvent,
+        PlayerBlockEvent, PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent,
+        PlayerShootEvent, PlayerSpawnEvent,
     },
     manage_state::GameStateEvent,
     protos::generated::applesauce,
@@ -104,6 +104,7 @@ fn write_inputs_to_network(
     mut move_right_events: EventReader<PlayerMoveRightEvent>,
     mut jump_events: EventReader<PlayerJumpEvent>,
     mut shoot_events: EventReader<PlayerShootEvent>,
+    mut block_events: EventReader<PlayerBlockEvent>,
 ) {
     for event in spawn_events.read() {
         sender.0.send(event.into()).unwrap();
@@ -122,6 +123,10 @@ fn write_inputs_to_network(
     }
 
     for event in shoot_events.read() {
+        sender.0.send(event.into()).unwrap();
+    }
+
+    for event in block_events.read() {
         sender.0.send(event.into()).unwrap();
     }
 }

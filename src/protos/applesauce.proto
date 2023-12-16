@@ -16,6 +16,7 @@ message Input {
     MoveRight move_right = 4;
     Jump jump = 5;
     Shoot shoot = 6;
+    Block block = 7;
   }
 }
 
@@ -67,3 +68,4 @@ message Jump {}
 message Shoot {
   Vec3 aim = 1;
 }
+message Block {}
