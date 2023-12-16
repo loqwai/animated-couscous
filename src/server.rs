@@ -4,6 +4,7 @@ use std::{
 };
 
 use bevy::prelude::*;
+use bevy_rapier2d::dynamics::Velocity;
 use crossbeam_channel::{Receiver, Sender};
 use protobuf::{CodedInputStream, Message};
 
@@ -134,7 +135,7 @@ fn recv_input(
 fn send_state(
     sender: Res<GameStateSender>,
     players: Query<(&Player, &Transform)>,
-    bullets: Query<(&Bullet, &Transform)>,
+    bullets: Query<(&Bullet, &Transform, &Velocity)>,
     time: Res<Time>,
 ) {
     sender
@@ -149,16 +150,17 @@ fn send_state(
                     spawn_id: player.spawn_id.to_string(),
                     radius: player.radius,
                     color: applesauce::Color::from(player.color).into(),
-                    position: applesauce::Vec3::from(transform.translation.clone()).into(),
+                    position: applesauce::Vec3::from(transform.translation).into(),
                     special_fields: default(),
                 })
                 .collect(),
             bullets: bullets
                 .iter()
-                .map(|(bullet, transform)| applesauce::Bullet {
+                .map(|(bullet, transform, velocity)| applesauce::Bullet {
                     id: bullet.id.to_string(),
-                    position: applesauce::Vec3::from(transform.translation.clone()).into(),
-                    rotation: applesauce::Quat::from(transform.rotation.clone()).into(),
+                    position: applesauce::Vec3::from(transform.translation).into(),
+                    rotation: applesauce::Quat::from(transform.rotation).into(),
+                    velocity: applesauce::Vec2::from(velocity.linvel).into(),
                     special_fields: default(),
                 })
                 .collect(),

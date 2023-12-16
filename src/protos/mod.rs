@@ -1,4 +1,4 @@
-use bevy::prelude::default;
+use bevy::{prelude::default, transform::components::Transform};
 
 use crate::events::{
     PlayerJumpEvent, PlayerMoveLeftEvent, PlayerMoveRightEvent, PlayerShootEvent, PlayerSpawnEvent,
@@ -6,6 +6,28 @@ use crate::events::{
 
 pub mod generated {
     include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
+}
+
+impl From<bevy::prelude::Vec2> for generated::applesauce::Vec2 {
+    fn from(v: bevy::prelude::Vec2) -> Self {
+        Self {
+            x: v.x,
+            y: v.y,
+            special_fields: Default::default(),
+        }
+    }
+}
+
+impl From<generated::applesauce::Vec2> for bevy::prelude::Vec2 {
+    fn from(v: generated::applesauce::Vec2) -> Self {
+        Self::new(v.x, v.y)
+    }
+}
+
+impl Into<protobuf::MessageField<generated::applesauce::Vec2>> for generated::applesauce::Vec2 {
+    fn into(self) -> protobuf::MessageField<generated::applesauce::Vec2> {
+        protobuf::MessageField(Some(Box::new(self)))
+    }
 }
 
 impl From<bevy::prelude::Vec3> for generated::applesauce::Vec3 {
@@ -154,6 +176,39 @@ impl From<&PlayerShootEvent> for generated::applesauce::Input {
                 },
             )),
             special_fields: default(),
+        }
+    }
+}
+
+impl From<generated::applesauce::GameState> for crate::manage_state::GameStateEvent {
+    fn from(value: generated::applesauce::GameState) -> Self {
+        Self {
+            timestamp: value.timestamp,
+            players: value
+                .players
+                .into_iter()
+                .map(|player| crate::manage_state::PlayerState {
+                    id: player.id,
+                    client_id: player.client_id,
+                    spawn_id: player.spawn_id,
+                    radius: player.radius,
+                    position: player.position.unwrap().into(),
+                    color: player.color.unwrap().into(),
+                })
+                .collect(),
+            bullets: value
+                .bullets
+                .into_iter()
+                .map(|bullet| crate::manage_state::BulletState {
+                    id: bullet.id,
+                    transform: Transform {
+                        translation: bullet.position.unwrap().into(),
+                        rotation: bullet.rotation.unwrap().into(),
+                        ..Default::default()
+                    },
+                    velocity: bullet.velocity.unwrap().into(),
+                })
+                .collect(),
         }
     }
 }

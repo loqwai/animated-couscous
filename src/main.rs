@@ -62,10 +62,11 @@ fn main() {
     }))
     .add_plugins(WorldInspectorPlugin::new())
     .add_plugins(RenderPlugin)
-    .add_plugins(InputPlugin);
+    .add_plugins(InputPlugin)
+    .add_plugins(ManageStatePlugin);
 
     if let Ok(hostname) = std::env::var("SERVE_ON") {
-        app.add_plugins((ServerPlugin::serve_on(hostname), ManageStatePlugin));
+        app.add_plugins(ServerPlugin::serve_on(hostname));
     }
 
     if let Ok(hostname) = std::env::var("CONNECT_TO") {

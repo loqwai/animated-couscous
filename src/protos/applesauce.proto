@@ -32,6 +32,12 @@ message Bullet {
   string id = 1;
   Vec3 position = 2;
   Quat rotation = 3;
+  Vec2 velocity = 4;
+}
+
+message Vec2 {
+  float x = 1;
+  float y = 2;
 }
 
 message Vec3 {

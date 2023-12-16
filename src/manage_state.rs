@@ -1,6 +1,9 @@
 use std::f32::consts::PI;
 
-use bevy::{prelude::*, utils::HashSet};
+use bevy::{
+    prelude::*,
+    utils::{hashbrown::HashMap, HashSet},
+};
 use bevy_rapier2d::prelude::*;
 use uuid::Uuid;
 
@@ -19,6 +22,7 @@ impl Plugin for ManageStatePlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         app.add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
             .add_plugins(RapierDebugRenderPlugin::default())
+            .add_event::<GameStateEvent>()
             .add_event::<PlayerSpawnEvent>()
             .add_event::<PlayerMoveLeftEvent>()
             .add_event::<PlayerMoveRightEvent>()
@@ -27,7 +31,12 @@ impl Plugin for ManageStatePlugin {
             .add_systems(Startup, (load_level, configure_gravity))
             .add_systems(
                 First,
-                (reset_player_horizontal_velocity, reset_vertical_impulse),
+                (
+                    reset_player_horizontal_velocity,
+                    reset_vertical_impulse,
+                    update_players_from_game_state_event,
+                    update_bullets_from_game_state_event,
+                ),
             )
             .add_systems(
                 PreUpdate,
@@ -51,6 +60,28 @@ impl Plugin for ManageStatePlugin {
     }
 }
 
+#[derive(Event)]
+pub(crate) struct GameStateEvent {
+    pub(crate) timestamp: u64,
+    pub(crate) players: Vec<PlayerState>,
+    pub(crate) bullets: Vec<BulletState>,
+}
+
+pub(crate) struct PlayerState {
+    pub(crate) id: String,
+    pub(crate) client_id: String,
+    pub(crate) spawn_id: String,
+    pub(crate) radius: f32,
+    pub(crate) color: Color,
+    pub(crate) position: Vec3,
+}
+
+pub(crate) struct BulletState {
+    pub(crate) id: String,
+    pub(crate) transform: Transform,
+    pub(crate) velocity: Vec2,
+}
+
 #[derive(Component, Reflect)]
 struct Despawn;
 
@@ -65,14 +96,14 @@ pub(crate) struct Player {
 
 #[derive(Bundle)]
 struct PlayerBundle {
-    pub(crate) name: Name,
-    pub(crate) player: Player,
-    pub(crate) rigid_body: RigidBody,
-    pub(crate) collider: Collider,
-    pub(crate) transform: TransformBundle,
-    pub(crate) velocity: Velocity,
-    pub(crate) external_impulse: ExternalImpulse,
-    pub(crate) locked_axes: LockedAxes,
+    name: Name,
+    player: Player,
+    rigid_body: RigidBody,
+    collider: Collider,
+    transform: TransformBundle,
+    velocity: Velocity,
+    external_impulse: ExternalImpulse,
+    locked_axes: LockedAxes,
 }
 
 impl PlayerBundle {
@@ -105,6 +136,19 @@ struct BulletBundle {
     active_events: ActiveEvents,
 }
 
+impl BulletBundle {
+    pub(crate) fn new(bullet: Bullet, transform: Transform, velocity: Vec2) -> Self {
+        Self {
+            bullet,
+            transform: TransformBundle::from_transform(transform),
+            velocity: Velocity::linear(velocity),
+            rigid_body: RigidBody::Dynamic,
+            collider: Collider::cuboid(20., 5.),
+            active_events: ActiveEvents::COLLISION_EVENTS,
+        }
+    }
+}
+
 fn load_level(
     commands: Commands,
     config: Res<AppConfig>,
@@ -134,6 +178,87 @@ fn reset_vertical_impulse(mut impulses: Query<&mut ExternalImpulse>) {
     }
 }
 
+fn update_players_from_game_state_event(
+    mut commands: Commands,
+    mut players: Query<(Entity, &Player, &mut Transform)>,
+    mut events: EventReader<GameStateEvent>,
+) {
+    match events.read().max_by(|a, b| a.timestamp.cmp(&b.timestamp)) {
+        None => return,
+        Some(game_state) => {
+            let mut player_entities_by_id: HashMap<String, Entity> = players
+                .iter_mut()
+                .map(|(entity, player, _)| (player.id.to_string(), entity))
+                .collect();
+
+            for player_state in game_state.players.iter() {
+                player_entities_by_id.remove(&player_state.id);
+
+                match players.iter_mut().find(|(_, b, _)| b.id == player_state.id) {
+                    Some((_, _, mut transform)) => {
+                        transform.translation = player_state.position.clone();
+                    }
+                    None => {
+                        commands.spawn(PlayerBundle::new(
+                            Player {
+                                id: player_state.id.clone(),
+                                spawn_id: player_state.spawn_id.clone(),
+                                client_id: player_state.client_id.clone(),
+                                radius: player_state.radius,
+                                color: player_state.color.clone(),
+                            },
+                            Transform::from_translation(player_state.position.clone()),
+                        ));
+                    }
+                }
+            }
+
+            for (_, entity) in player_entities_by_id {
+                commands.entity(entity).insert(Despawn);
+            }
+        }
+    }
+}
+
+fn update_bullets_from_game_state_event(
+    mut commands: Commands,
+    mut bullets: Query<(Entity, &Bullet, &mut Transform)>,
+    mut events: EventReader<GameStateEvent>,
+) {
+    match events.read().max_by(|a, b| a.timestamp.cmp(&b.timestamp)) {
+        None => return,
+        Some(game_state) => {
+            let mut bullet_entities_by_id: HashMap<String, Entity> = bullets
+                .iter_mut()
+                .map(|(entity, bullet, _)| (bullet.id.to_string(), entity))
+                .collect();
+
+            for bullet_state in game_state.bullets.iter() {
+                bullet_entities_by_id.remove(&bullet_state.id);
+
+                match bullets.iter_mut().find(|(_, b, _)| b.id == bullet_state.id) {
+                    Some((_, _, mut transform)) => {
+                        transform.set_if_neq(bullet_state.transform);
+                    }
+                    None => {
+                        commands.spawn(BulletBundle::new(
+                            Bullet {
+                                id: bullet_state.id.clone(),
+                            },
+                            bullet_state.transform.clone(),
+                            bullet_state.velocity.clone(),
+                        ));
+                    }
+                }
+            }
+
+            for (_, entity) in bullet_entities_by_id {
+                commands.entity(entity).insert(Despawn);
+            }
+        }
+    }
+}
+
 fn handle_player_spawn_event(
     mut commands: Commands,
     mut events: EventReader<PlayerSpawnEvent>,
@@ -160,12 +285,8 @@ fn handle_player_spawn_event(
         }
 
         match unused_spawns_iter.next() {
-            None => {
-                println!("No more spawn points available");
-                return;
-            }
+            None => return,
             Some(spawn) => {
-                println!("Spawn player at spawn point {}", spawn.id);
                 commands.spawn(PlayerBundle::new(
                     Player {
                         id: Uuid::new_v4().to_string(),
@@ -251,20 +372,17 @@ fn handle_player_shoot_event(
                 let velocity = Vec2::from(event.aim.normalize() * config.bullet_speed);
                 let rotation = Quat::from_rotation_z(velocity.y.atan2(velocity.x));
 
-                commands.spawn(BulletBundle {
-                    bullet: Bullet {
+                commands.spawn(BulletBundle::new(
+                    Bullet {
                         id: Uuid::new_v4().to_string(),
                     },
-                    rigid_body: RigidBody::Dynamic,
-                    collider: Collider::cuboid(20., 5.),
-                    transform: TransformBundle::from_transform(Transform {
+                    Transform {
                         translation: Vec3::new(bullet_position.x, bullet_position.y, 0.1),
                         rotation,
                         ..default()
-                    }),
-                    velocity: Velocity::linear(velocity),
-                    active_events: ActiveEvents::COLLISION_EVENTS,
-                });
+                    },
+                    velocity,
+                ));
             }
         };
     }
