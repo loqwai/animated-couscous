@@ -543,9 +543,9 @@ fn bullets_despawn_on_collision_with_anything(
 fn players_despawn_on_collision_with_bullets(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
-    players: Query<(Entity, &Children), With<Player>>,
+    players: Query<Entity, With<Player>>,
     bullets: Query<Entity, With<Bullet>>,
-    shields: Query<&Shield>,
+    shields: Query<&Parent, With<Shield>>,
 ) {
     for collision in collision_events.read() {
         match collision {
@@ -555,17 +555,19 @@ fn players_despawn_on_collision_with_bullets(
                     continue;
                 }
 
-                let (entity, children) = match players.get(*e1).or_else(|_| players.get(*e2)) {
+                let player = match players.get(*e1).or_else(|_| players.get(*e2)) {
                     Ok(player) => player,
                     Err(_) => continue,
                 };
 
-                let shield = children.iter().find(|child| shields.get(**child).is_ok());
+                let shield = shields
+                    .iter()
+                    .find(|shield_parent| shield_parent.get() == player);
                 if shield.is_some() {
                     continue;
                 }
 
-                commands.entity(entity).insert(Despawn);
+                commands.entity(player).insert(Despawn);
             }
         }
     }
