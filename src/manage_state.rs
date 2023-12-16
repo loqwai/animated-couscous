@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, time::Duration};
 
 use bevy::{
     prelude::*,
@@ -51,6 +51,7 @@ impl Plugin for ManageStatePlugin {
             .add_systems(
                 Update,
                 (
+                    advance_fire_timeout,
                     arc_bullets,
                     bullets_despawn_on_collision_with_anything,
                     players_despawn_on_collision_with_bullets,
@@ -85,7 +86,7 @@ pub(crate) struct BulletState {
 #[derive(Component, Reflect)]
 struct Despawn;
 
-#[derive(Component, Default, Reflect)]
+#[derive(Component, Reflect)]
 pub(crate) struct Player {
     pub(crate) id: String,
     pub(crate) spawn_id: String,
@@ -93,6 +94,9 @@ pub(crate) struct Player {
     pub(crate) radius: f32,
     pub(crate) color: Color,
 }
+
+#[derive(Component, Reflect)]
+pub(crate) struct FireTimeout(Timer);
 
 #[derive(Bundle)]
 struct PlayerBundle {
@@ -102,16 +106,21 @@ struct PlayerBundle {
     collider: Collider,
     transform: TransformBundle,
     velocity: Velocity,
+    fire_timeout: FireTimeout,
     external_impulse: ExternalImpulse,
     locked_axes: LockedAxes,
 }
 
 impl PlayerBundle {
-    pub(crate) fn new(player: Player, transform: Transform) -> Self {
+    pub(crate) fn new(player: Player, transform: Transform, fire_timeout: u64) -> Self {
         Self {
             name: Name::new(format!("Player {}", player.client_id)),
             collider: Collider::ball(player.radius),
             player,
+            fire_timeout: FireTimeout(Timer::new(
+                Duration::from_millis(fire_timeout),
+                TimerMode::Once,
+            )),
             rigid_body: RigidBody::Dynamic,
             transform: TransformBundle::from_transform(transform),
             locked_axes: LockedAxes::ROTATION_LOCKED,
@@ -182,6 +191,7 @@ fn update_players_from_game_state_event(
     mut commands: Commands,
     mut players: Query<(Entity, &Player, &mut Transform)>,
     mut events: EventReader<GameStateEvent>,
+    config: Res<AppConfig>,
 ) {
     match events.read().max_by(|a, b| a.timestamp.cmp(&b.timestamp)) {
         None => return,
@@ -208,6 +218,7 @@ fn update_players_from_game_state_event(
                                 color: player_state.color.clone(),
                             },
                             Transform::from_translation(player_state.position.clone()),
+                            config.fire_timeout,
                         ));
                     }
                 }
@@ -262,6 +273,7 @@ fn update_bullets_from_game_state_event(
 fn handle_player_spawn_event(
     mut commands: Commands,
     mut events: EventReader<PlayerSpawnEvent>,
+    config: Res<AppConfig>,
     players: Query<&Player>,
     spawns: Query<&PlayerSpawn>,
 ) {
@@ -296,6 +308,7 @@ fn handle_player_spawn_event(
                         color: spawn.color,
                     },
                     Transform::from_translation(spawn.position),
+                    config.fire_timeout,
                 ));
             }
         }
@@ -352,18 +365,30 @@ fn handle_player_jump_event(
     }
 }
 
+fn advance_fire_timeout(mut fire_timeouts: Query<&mut FireTimeout>, time: Res<Time>) {
+    for mut fire_timeout in fire_timeouts.iter_mut() {
+        fire_timeout.0.tick(time.delta());
+    }
+}
+
 fn handle_player_shoot_event(
     mut commands: Commands,
     mut events: EventReader<PlayerShootEvent>,
-    players: Query<(&Player, &Transform)>,
+    mut players: Query<(&Player, &Transform, &mut FireTimeout)>,
     config: Res<AppConfig>,
 ) {
     for event in events.read() {
-        match players.iter().find(|(p, _)| p.client_id == event.client_id) {
+        match players
+            .iter_mut()
+            .find(|p| p.0.client_id == event.client_id)
+        {
             None => continue,
-            Some((player, transform)) => {
-                // TODO: Implement fire timeout
+            Some((player, transform, mut fire_timeout)) => {
+                if !fire_timeout.0.finished() {
+                    continue;
+                }
 
+                fire_timeout.0.reset();
                 let bullet_half_length = 20.;
                 let offset = player.radius + bullet_half_length + config.fudge_factor;
                 let bullet_position =
