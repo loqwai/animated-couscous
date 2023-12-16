@@ -16,19 +16,31 @@ use crate::{
     AppConfig,
 };
 
-pub(crate) struct ManageStatePlugin;
+pub(crate) struct ManageStatePlugin {
+    enable_physics: bool,
+}
+
+impl ManageStatePlugin {
+    pub(crate) fn with_physics(enable_physics: bool) -> Self {
+        Self { enable_physics }
+    }
+}
 
 impl Plugin for ManageStatePlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        app.add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
-            .add_plugins(RapierDebugRenderPlugin::default())
-            .add_event::<GameStateEvent>()
+        if self.enable_physics {
+            app.add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
+                .add_plugins(RapierDebugRenderPlugin::default());
+        }
+
+        app.add_event::<GameStateEvent>()
             .add_event::<PlayerSpawnEvent>()
             .add_event::<PlayerMoveLeftEvent>()
             .add_event::<PlayerMoveRightEvent>()
             .add_event::<PlayerJumpEvent>()
             .add_event::<PlayerShootEvent>()
             .add_event::<PlayerBlockEvent>()
+            .add_event::<CollisionEvent>()
             .add_systems(Startup, (load_level, configure_gravity))
             .add_systems(
                 First,

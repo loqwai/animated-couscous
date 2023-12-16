@@ -35,6 +35,11 @@ fn main() {
     let width: f32 = 1000.;
     let height: f32 = 400.;
 
+    let enable_physics: bool = std::env::var("ENABLE_PHYSICS")
+            .unwrap_or("true".to_string())
+            .parse()
+            .expect("Failed to parse boolean value for ENABLE_PHYSICS. Accepted values are 'true' or 'false'");
+
     let mut app = App::new();
     app.insert_resource(AppConfig {
         width,
@@ -66,7 +71,7 @@ fn main() {
     .add_plugins(WorldInspectorPlugin::new())
     .add_plugins(RenderPlugin)
     .add_plugins(InputPlugin)
-    .add_plugins(ManageStatePlugin);
+    .add_plugins(ManageStatePlugin::with_physics(enable_physics));
 
     if let Ok(hostname) = std::env::var("SERVE_ON") {
         app.add_plugins(ServerPlugin::serve_on(hostname));
