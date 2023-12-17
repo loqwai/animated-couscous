@@ -125,10 +125,10 @@ pub(crate) struct Player {
     pub(crate) color: Color,
 }
 
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Deref, DerefMut)]
 pub(crate) struct FireTimeout(Timer);
 
-#[derive(Component, Reflect)]
+#[derive(Component, Reflect, Deref, DerefMut)]
 pub(crate) struct ShieldTimeout(Timer);
 
 #[derive(Bundle)]
@@ -415,13 +415,13 @@ fn handle_player_jump_event(
 
 fn advance_fire_timeout(mut fire_timeouts: Query<&mut FireTimeout>, time: Res<Time>) {
     for mut fire_timeout in fire_timeouts.iter_mut() {
-        fire_timeout.0.tick(time.delta());
+        fire_timeout.tick(time.delta());
     }
 }
 
 fn advance_shield_timeout(mut shield_timeouts: Query<&mut ShieldTimeout>, time: Res<Time>) {
     for mut shield_timeout in shield_timeouts.iter_mut() {
-        shield_timeout.0.tick(time.delta());
+        shield_timeout.tick(time.delta());
     }
 }
 
@@ -438,11 +438,11 @@ fn handle_player_shoot_event(
         {
             None => continue,
             Some((player, transform, mut fire_timeout)) => {
-                if !fire_timeout.0.finished() {
+                if !fire_timeout.finished() {
                     continue;
                 }
 
-                fire_timeout.0.reset();
+                fire_timeout.reset();
                 let bullet_half_length = 20.;
                 let offset = player.radius + bullet_half_length + config.fudge_factor;
                 let bullet_position =
@@ -480,11 +480,11 @@ fn handle_player_block_event(
         {
             None => continue,
             Some((entity, player, mut shield_timeout)) => {
-                if !shield_timeout.0.finished() {
+                if !shield_timeout.finished() {
                     continue;
                 }
 
-                shield_timeout.0.reset();
+                shield_timeout.reset();
                 let radius = player.radius + 10.;
                 let shield = commands
                     .spawn(ShieldBundle {

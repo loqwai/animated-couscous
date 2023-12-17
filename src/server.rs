@@ -46,10 +46,10 @@ struct ServerConfig {
 // #[derive(Resource)]
 // struct InputEventReceiver(Receiver<applesauce::GameState>);
 
-#[derive(Resource)]
+#[derive(Resource, Deref)]
 struct GameStateSender(Sender<applesauce::GameState>);
 
-#[derive(Resource)]
+#[derive(Resource, Deref)]
 struct InputReceiver(Receiver<applesauce::Input>);
 
 fn serve(mut commands: Commands, config: Res<ServerConfig>) {
@@ -114,7 +114,7 @@ fn recv_input(
     mut shoot_events: EventWriter<PlayerShootEvent>,
     mut block_events: EventWriter<PlayerBlockEvent>,
 ) {
-    receiver.0.try_iter().for_each(|input| match input.inner {
+    receiver.try_iter().for_each(|input| match input.inner {
         Some(applesauce::input::Inner::Spawn(_)) => spawn_events.send(PlayerSpawnEvent {
             client_id: input.client_id,
         }),
@@ -147,7 +147,6 @@ fn send_state(
     time: Res<Time>,
 ) {
     sender
-        .0
         .send(applesauce::GameState {
             timestamp: time.elapsed().as_millis() as u64,
             players: players

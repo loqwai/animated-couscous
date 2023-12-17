@@ -46,10 +46,10 @@ struct ClientConfig {
     hostname: String,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Deref)]
 struct ReceiveGameState(Receiver<applesauce::GameState>);
 
-#[derive(Resource)]
+#[derive(Resource, Deref)]
 struct SendInput(Sender<applesauce::Input>);
 
 fn connect_to_server(mut commands: Commands, config: Res<ClientConfig>) {
@@ -88,7 +88,6 @@ fn proxy_game_state_from_network(
     mut events: EventWriter<GameStateEvent>,
 ) {
     match receiver
-        .0
         .try_iter()
         .max_by(|a, b| a.timestamp.cmp(&b.timestamp))
     {
@@ -107,27 +106,27 @@ fn write_inputs_to_network(
     mut block_events: EventReader<PlayerBlockEvent>,
 ) {
     for event in spawn_events.read() {
-        sender.0.send(event.into()).unwrap();
+        sender.send(event.into()).unwrap();
     }
 
     for event in move_left_events.read() {
-        sender.0.send(event.into()).unwrap();
+        sender.send(event.into()).unwrap();
     }
 
     for event in move_right_events.read() {
-        sender.0.send(event.into()).unwrap();
+        sender.send(event.into()).unwrap();
     }
 
     for event in jump_events.read() {
-        sender.0.send(event.into()).unwrap();
+        sender.send(event.into()).unwrap();
     }
 
     for event in shoot_events.read() {
-        sender.0.send(event.into()).unwrap();
+        sender.send(event.into()).unwrap();
     }
 
     for event in block_events.read() {
-        sender.0.send(event.into()).unwrap();
+        sender.send(event.into()).unwrap();
     }
 }
 
