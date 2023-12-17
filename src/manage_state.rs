@@ -71,6 +71,7 @@ impl Plugin for ManageStatePlugin {
                     bullets_despawn_on_collision_with_anything,
                     players_despawn_on_collision_with_bullets,
                     shields_despawn_on_timeout,
+                    enable_or_disable_player_jumping,
                 ),
             )
             .add_systems(PostUpdate, despawn_things_that_need_despawning);
@@ -142,6 +143,7 @@ struct PlayerBundle {
     shield_timeout: ShieldTimeout,
     external_impulse: ExternalImpulse,
     locked_axes: LockedAxes,
+    active_events: ActiveEvents,
 }
 
 impl PlayerBundle {
@@ -163,6 +165,7 @@ impl PlayerBundle {
                 Duration::from_millis(shield_timeout),
                 TimerMode::Once,
             )),
+            active_events: ActiveEvents::COLLISION_EVENTS,
             rigid_body: RigidBody::Dynamic,
             transform: TransformBundle::from_transform(transform),
             locked_axes: LockedAxes::ROTATION_LOCKED,
@@ -199,6 +202,9 @@ impl BulletBundle {
         }
     }
 }
+
+#[derive(Component, Reflect)]
+struct CanJump;
 
 fn load_level(
     commands: Commands,
@@ -393,11 +399,9 @@ fn handle_player_move_right_event(
 
 fn handle_player_jump_event(
     config: Res<AppConfig>,
-    mut players: Query<(&Player, &mut ExternalImpulse)>,
+    mut players: Query<(&Player, &mut ExternalImpulse), With<CanJump>>,
     mut events: EventReader<PlayerJumpEvent>,
 ) {
-    // TODO: Ignore jump events from players that aren't touching the ground
-
     for event in events.read() {
         match players
             .iter_mut()
@@ -595,6 +599,33 @@ fn shields_despawn_on_timeout(
 
         if shield.ttl.finished() {
             commands.entity(entity).insert(Despawn);
+        }
+    }
+}
+
+fn enable_or_disable_player_jumping(
+    mut commands: Commands,
+    mut collisions: EventReader<CollisionEvent>,
+    players: Query<Entity, With<Player>>,
+) {
+    for collision in collisions.read() {
+        match collision {
+            CollisionEvent::Stopped(e1, e2, _) => {
+                let player = match players.get(*e1).or_else(|_| players.get(*e2)) {
+                    Ok(player) => player,
+                    Err(_) => continue,
+                };
+
+                commands.entity(player).remove::<CanJump>();
+            }
+            CollisionEvent::Started(e1, e2, _) => {
+                let player = match players.get(*e1).or_else(|_| players.get(*e2)) {
+                    Ok(player) => player,
+                    Err(_) => continue,
+                };
+
+                commands.entity(player).insert(CanJump);
+            }
         }
     }
 }

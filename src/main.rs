@@ -51,7 +51,7 @@ fn main() {
         bullet_speed: 1000.,
         player_move_speed: 400.,
         fire_timeout: 500,
-        jump_amount: 50.,
+        jump_amount: 200.,
         gravity: 2000.,
 
         shield_timeout: 1000,
