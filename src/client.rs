@@ -28,6 +28,7 @@ impl Plugin for ClientPlugin {
         app.insert_resource(ClientConfig {
             hostname: self.hostname.clone(),
         })
+        .insert_resource(LatestEventTime(None))
         .add_systems(Startup, connect_to_server)
         .add_event::<GameStateEvent>()
         .add_systems(
