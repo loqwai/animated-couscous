@@ -55,7 +55,7 @@ fn main() {
         gravity: 2000.,
 
         shield_timeout: 1000,
-        shield_duration: 50000,
+        shield_duration: 500,
     })
     .add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
