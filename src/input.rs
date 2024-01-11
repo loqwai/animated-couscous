@@ -40,6 +40,7 @@ fn on_enter_send_player_spawn(
 ) {
     if keyboard_input.just_pressed(KeyCode::Return) {
         events.send(PlayerSpawnEvent {
+            id: uuid::Uuid::new_v4().to_string(),
             client_id: config.client_id.to_string(),
         });
     }
@@ -52,6 +53,7 @@ fn on_a_send_player_move_left(
 ) {
     if keyboard_input.pressed(KeyCode::A) {
         events.send(PlayerMoveLeftEvent {
+            id: uuid::Uuid::new_v4().to_string(),
             client_id: config.client_id.to_string(),
         });
     }
@@ -64,6 +66,7 @@ fn on_d_send_player_move_right(
 ) {
     if keyboard_input.pressed(KeyCode::D) {
         events.send(PlayerMoveRightEvent {
+            id: uuid::Uuid::new_v4().to_string(),
             client_id: config.client_id.to_string(),
         });
     }
@@ -76,6 +79,7 @@ fn on_space_send_player_jump(
 ) {
     if keyboard_input.pressed(KeyCode::Space) {
         events.send(PlayerJumpEvent {
+            id: uuid::Uuid::new_v4().to_string(),
             client_id: config.client_id.to_string(),
         });
     }
@@ -126,6 +130,7 @@ fn on_left_click_send_player_shoot_event_fallible(
         .xy();
 
     events.send(PlayerShootEvent {
+        id: uuid::Uuid::new_v4().to_string(),
         client_id: config.client_id.to_string(),
         aim,
     });
@@ -143,6 +148,7 @@ fn on_right_click_send_player_block(
     };
 
     events.send(PlayerBlockEvent {
+        id: uuid::Uuid::new_v4().to_string(),
         client_id: config.client_id.to_string(),
     });
 }

@@ -4,19 +4,21 @@ message GameState {
   uint64 timestamp = 1;
   repeated Player players = 2;
   repeated Bullet bullets = 3;
+  // repeated Input inputs = 4;
 }
 
 
 message Input {
   string client_id = 1;
+  string id = 2;
 
   oneof inner {
-    Spawn spawn = 2;
-    MoveLeft move_left = 3;
-    MoveRight move_right = 4;
-    Jump jump = 5;
-    Shoot shoot = 6;
-    Block block = 7;
+    Spawn spawn = 3;
+    MoveLeft move_left = 4;
+    MoveRight move_right = 5;
+    Jump jump = 6;
+    Shoot shoot = 7;
+    Block block = 8;
   }
 }
 

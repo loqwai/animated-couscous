@@ -121,6 +121,7 @@ impl Into<protobuf::MessageField<generated::applesauce::Color>> for generated::a
 impl From<&PlayerSpawnEvent> for generated::applesauce::Input {
     fn from(value: &PlayerSpawnEvent) -> Self {
         generated::applesauce::Input {
+            id: value.id.to_string(),
             client_id: value.client_id.to_string(),
             inner: Some(generated::applesauce::input::Inner::Spawn(
                 generated::applesauce::Spawn::default(),
@@ -133,6 +134,7 @@ impl From<&PlayerSpawnEvent> for generated::applesauce::Input {
 impl From<&PlayerMoveLeftEvent> for generated::applesauce::Input {
     fn from(value: &PlayerMoveLeftEvent) -> Self {
         generated::applesauce::Input {
+            id: value.id.to_string(),
             client_id: value.client_id.to_string(),
             inner: Some(generated::applesauce::input::Inner::MoveLeft(
                 generated::applesauce::MoveLeft::default(),
@@ -145,6 +147,7 @@ impl From<&PlayerMoveLeftEvent> for generated::applesauce::Input {
 impl From<&PlayerMoveRightEvent> for generated::applesauce::Input {
     fn from(value: &PlayerMoveRightEvent) -> Self {
         generated::applesauce::Input {
+            id: value.id.to_string(),
             client_id: value.client_id.to_string(),
             inner: Some(generated::applesauce::input::Inner::MoveRight(
                 generated::applesauce::MoveRight::default(),
@@ -157,6 +160,7 @@ impl From<&PlayerMoveRightEvent> for generated::applesauce::Input {
 impl From<&PlayerJumpEvent> for generated::applesauce::Input {
     fn from(value: &PlayerJumpEvent) -> Self {
         generated::applesauce::Input {
+            id: value.id.to_string(),
             client_id: value.client_id.to_string(),
             inner: Some(generated::applesauce::input::Inner::Jump(
                 generated::applesauce::Jump::default(),
@@ -169,6 +173,7 @@ impl From<&PlayerJumpEvent> for generated::applesauce::Input {
 impl From<&PlayerShootEvent> for generated::applesauce::Input {
     fn from(value: &PlayerShootEvent) -> Self {
         generated::applesauce::Input {
+            id: value.id.to_string(),
             client_id: value.client_id.to_string(),
             inner: Some(generated::applesauce::input::Inner::Shoot(
                 generated::applesauce::Shoot {
@@ -184,6 +189,7 @@ impl From<&PlayerShootEvent> for generated::applesauce::Input {
 impl From<&PlayerBlockEvent> for generated::applesauce::Input {
     fn from(value: &PlayerBlockEvent) -> Self {
         generated::applesauce::Input {
+            id: value.id.to_string(),
             client_id: value.client_id.to_string(),
             inner: Some(generated::applesauce::input::Inner::Block(
                 generated::applesauce::Block::default(),
