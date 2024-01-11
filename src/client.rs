@@ -46,6 +46,9 @@ struct ClientConfig {
     hostname: String,
 }
 
+#[derive(Resource, Deref, DerefMut)]
+struct LatestEventTime(Option<u64>);
+
 #[derive(Resource, Deref)]
 struct ReceiveGameState(Receiver<applesauce::GameState>);
 
@@ -86,13 +89,20 @@ fn connect_to_server(mut commands: Commands, config: Res<ClientConfig>) {
 fn proxy_game_state_from_network(
     receiver: Res<ReceiveGameState>,
     mut events: EventWriter<GameStateEvent>,
+    mut latest_event_time: ResMut<LatestEventTime>,
 ) {
     match receiver
         .try_iter()
         .max_by(|a, b| a.timestamp.cmp(&b.timestamp))
     {
         None => return,
-        Some(game_state) => events.send(game_state.into()),
+        Some(game_state) => {
+            if game_state.timestamp <= *latest_event_time.get_or_insert(0) {
+                return;
+            }
+            latest_event_time.replace(game_state.timestamp);
+            events.send(game_state.into());
+        }
     }
 }
 
