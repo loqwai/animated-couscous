@@ -41,6 +41,7 @@ impl Plugin for ManageStatePlugin {
             .add_event::<PlayerShootEvent>()
             .add_event::<PlayerBlockEvent>()
             .add_event::<CollisionEvent>()
+            .register_type::<Player>()
             .add_systems(Startup, (load_level, configure_gravity))
             .add_systems(
                 First,
