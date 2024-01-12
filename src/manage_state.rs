@@ -46,7 +46,7 @@ impl Plugin for ManageStatePlugin {
             .add_systems(
                 First,
                 (
-                    reset_player_horizontal_velocity,
+                    // reset_player_horizontal_velocity,
                     reset_vertical_impulse,
                     update_players_from_game_state_event,
                     update_bullets_from_game_state_event,
@@ -146,6 +146,7 @@ struct PlayerBundle {
     external_impulse: ExternalImpulse,
     locked_axes: LockedAxes,
     active_events: ActiveEvents,
+    friction: Friction,
 }
 
 impl PlayerBundle {
@@ -173,6 +174,10 @@ impl PlayerBundle {
             transform: TransformBundle::from_transform(transform),
             locked_axes: LockedAxes::ROTATION_LOCKED,
             velocity,
+            friction: Friction {
+                coefficient: 0.2,
+                combine_rule: CoefficientCombineRule::Average,
+            },
             external_impulse: Default::default(),
         }
     }
@@ -226,11 +231,11 @@ fn configure_gravity(mut commands: Commands, config: Res<AppConfig>) {
     });
 }
 
-fn reset_player_horizontal_velocity(mut velocities: Query<&mut Velocity, With<Player>>) {
-    for mut velocity in velocities.iter_mut() {
-        velocity.linvel.x = 0.;
-    }
-}
+// fn reset_player_horizontal_velocity(mut velocities: Query<&mut Velocity, With<Player>>) {
+//     for mut velocity in velocities.iter_mut() {
+//         velocity.linvel.x = 0.;
+//     }
+// }
 
 fn reset_vertical_impulse(mut impulses: Query<&mut ExternalImpulse>) {
     for mut impulse in impulses.iter_mut() {
