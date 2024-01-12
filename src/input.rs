@@ -77,7 +77,7 @@ fn on_space_send_player_jump(
     keyboard_input: Res<Input<KeyCode>>,
     mut events: EventWriter<PlayerJumpEvent>,
 ) {
-    if keyboard_input.pressed(KeyCode::Space) {
+    if keyboard_input.just_pressed(KeyCode::Space) {
         events.send(PlayerJumpEvent {
             id: uuid::Uuid::new_v4().to_string(),
             client_id: config.client_id.to_string(),
