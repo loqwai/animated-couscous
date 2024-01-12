@@ -51,12 +51,13 @@ fn main() {
         bullet_speed: 1000.,
         player_move_speed: 40.,
         fire_timeout: 500,
-        jump_amount: 200.,
+        jump_amount: 400.,
         gravity: 2000.,
 
         shield_timeout: 1000,
         shield_duration: 500,
     })
+    .register_type::<AppConfig>()
     .add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
             resolution: WindowResolution::new(width, height),
@@ -84,7 +85,7 @@ fn main() {
     app.run();
 }
 
-#[derive(Resource)]
+#[derive(Resource, Reflect)]
 struct AppConfig {
     width: f32,
     height: f32,
