@@ -146,7 +146,6 @@ struct PlayerBundle {
     external_impulse: ExternalImpulse,
     locked_axes: LockedAxes,
     active_events: ActiveEvents,
-    friction: Friction,
 }
 
 impl PlayerBundle {
@@ -174,10 +173,6 @@ impl PlayerBundle {
             transform: TransformBundle::from_transform(transform),
             locked_axes: LockedAxes::ROTATION_LOCKED,
             velocity,
-            friction: Friction {
-                coefficient: 0.2,
-                combine_rule: CoefficientCombineRule::Average,
-            },
             external_impulse: Default::default(),
         }
     }
@@ -230,12 +225,6 @@ fn configure_gravity(mut commands: Commands, config: Res<AppConfig>) {
         ..default()
     });
 }
-
-// fn reset_player_horizontal_velocity(mut velocities: Query<&mut Velocity, With<Player>>) {
-//     for mut velocity in velocities.iter_mut() {
-//         velocity.linvel.x = 0.;
-//     }
-// }
 
 fn reset_vertical_impulse(mut impulses: Query<&mut ExternalImpulse>) {
     for mut impulse in impulses.iter_mut() {
@@ -394,7 +383,12 @@ fn handle_player_move_left_event(
             .find(|(p, _)| p.client_id == event.client_id)
         {
             None => continue,
-            Some((_, mut velocity)) => velocity.linvel.x += -config.player_move_speed,
+            Some((_, mut velocity)) => {
+                if velocity.linvel.x < -config.player_max_move_speed {
+                    continue;
+                }
+                velocity.linvel.x += -config.player_move_speed;
+            }
         }
     }
 }
@@ -410,7 +404,12 @@ fn handle_player_move_right_event(
             .find(|(p, _)| p.client_id == event.client_id)
         {
             None => continue,
-            Some((_, mut velocity)) => velocity.linvel.x += config.player_move_speed,
+            Some((_, mut velocity)) => {
+                if velocity.linvel.x > config.player_max_move_speed {
+                    continue;
+                }
+                velocity.linvel.x += config.player_move_speed
+            }
         }
     }
 }
