@@ -1,6 +1,7 @@
 mod view_box;
 
 use std::collections::HashMap;
+use std::num::ParseFloatError;
 
 use bevy::prelude::*;
 use bevy::sprite::MaterialMesh2dBundle;
@@ -172,6 +173,11 @@ impl<'a> Loader<'a> {
             .unwrap_or(&svg::node::Value::from("rgba(0,0,0,0)"))
             .to_string();
 
+        let friction: f32 = attributes
+            .get("data-friction")
+            .unwrap_or(&svg::node::Value::from("0.5"))
+            .parse()?;
+
         let fill = parse_color(&fill_string)?;
 
         let entity = self
@@ -191,10 +197,13 @@ impl<'a> Loader<'a> {
             .id();
 
         if has_class(attributes, "collider") {
-            self.commands.entity(entity).insert(ColliderBundle {
-                body: RigidBody::Fixed,
-                collider: Collider::cuboid(width / 2., height / 2.),
-            });
+            self.commands
+                .entity(entity)
+                .insert(ColliderBundle {
+                    body: RigidBody::Fixed,
+                    collider: Collider::cuboid(width / 2., height / 2.),
+                })
+                .insert(Friction::new(friction));
         }
 
         Ok(())
@@ -378,6 +387,7 @@ pub(crate) enum HandleRectError {
     ParseRectError(ParseRectError),
     InvalidFill(csscolorparser::ParseColorError),
     AdjustmentError(AdjustmentError),
+    ParseFloatError(ParseFloatError),
 }
 
 #[derive(Debug, Error)]
