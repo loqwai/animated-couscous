@@ -213,6 +213,7 @@ impl From<generated::applesauce::GameState> for crate::manage_state::GameStateEv
                     radius: player.radius,
                     position: player.position.unwrap().into(),
                     color: player.color.unwrap().into(),
+                    velocity: player.velocity.unwrap().into(),
                 })
                 .collect(),
             bullets: value

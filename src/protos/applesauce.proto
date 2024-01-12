@@ -29,6 +29,7 @@ message Player {
   float radius = 4;
   Color color = 5;
   Vec3 position = 6;
+  Vec2 velocity = 7;
 }
 
 message Bullet {

@@ -148,7 +148,7 @@ fn recv_input(
 
 fn send_state(
     sender: Res<GameStateSender>,
-    players: Query<(&Player, &Transform)>,
+    players: Query<(&Player, &Transform, &Velocity)>,
     bullets: Query<(&Bullet, &Transform, &Velocity)>,
     time: Res<Time>,
 ) {
@@ -157,13 +157,14 @@ fn send_state(
             timestamp: time.elapsed().as_millis() as u64,
             players: players
                 .iter()
-                .map(|(player, transform)| applesauce::Player {
+                .map(|(player, transform, velocity)| applesauce::Player {
                     id: player.id.to_string(),
                     client_id: player.client_id.to_string(),
                     spawn_id: player.spawn_id.to_string(),
                     radius: player.radius,
                     color: applesauce::Color::from(player.color).into(),
                     position: applesauce::Vec3::from(transform.translation).into(),
+                    velocity: applesauce::Vec2::from(velocity.linvel).into(),
                     special_fields: default(),
                 })
                 .collect(),

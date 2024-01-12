@@ -92,6 +92,7 @@ pub(crate) struct PlayerState {
     pub(crate) radius: f32,
     pub(crate) color: Color,
     pub(crate) position: Vec3,
+    pub(crate) velocity: Vec2,
 }
 
 pub(crate) struct BulletState {
@@ -150,6 +151,7 @@ impl PlayerBundle {
     pub(crate) fn new(
         player: Player,
         transform: Transform,
+        velocity: Velocity,
         fire_timeout: u64,
         shield_timeout: u64,
     ) -> Self {
@@ -169,7 +171,7 @@ impl PlayerBundle {
             rigid_body: RigidBody::Dynamic,
             transform: TransformBundle::from_transform(transform),
             locked_axes: LockedAxes::ROTATION_LOCKED,
-            velocity: Velocity::default(),
+            velocity,
             external_impulse: Default::default(),
         }
     }
@@ -266,6 +268,7 @@ fn update_players_from_game_state_event(
                                 color: player_state.color.clone(),
                             },
                             Transform::from_translation(player_state.position.clone()),
+                            Velocity::linear(player_state.velocity.clone()),
                             config.fire_timeout,
                             config.shield_timeout,
                         ));
@@ -357,6 +360,7 @@ fn handle_player_spawn_event(
                         color: spawn.color,
                     },
                     Transform::from_translation(spawn.position),
+                    Velocity::default(),
                     config.fire_timeout,
                     config.shield_timeout,
                 ));
