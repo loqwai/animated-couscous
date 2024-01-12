@@ -412,16 +412,23 @@ fn handle_player_move_right_event(
 
 fn handle_player_jump_event(
     config: Res<AppConfig>,
-    mut players: Query<(&Player, &mut ExternalImpulse), With<CanJump>>,
+    mut players: Query<(Entity, &Player, &mut ExternalImpulse)>,
     mut events: EventReader<PlayerJumpEvent>,
+    rapier_context: Res<RapierContext>,
 ) {
     for event in events.read() {
         match players
             .iter_mut()
-            .find(|(p, _)| p.client_id == event.client_id)
+            .find(|(_, p, _)| p.client_id == event.client_id)
         {
             None => continue,
-            Some((_, mut impulse)) => impulse.impulse.y += config.jump_amount,
+            Some((entity, _, mut impulse)) => {
+                if rapier_context.contacts_with(entity).count() == 0 {
+                    continue;
+                };
+
+                impulse.impulse.y += config.jump_amount
+            }
         }
     }
 }
