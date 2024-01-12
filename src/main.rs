@@ -49,7 +49,7 @@ fn main() {
         // not implemented yet
         fudge_factor: 11.,
         bullet_speed: 1000.,
-        player_move_speed: 40.,
+        player_move_speed: 80.,
         fire_timeout: 500,
         jump_amount: 400.,
         gravity: 2000.,
