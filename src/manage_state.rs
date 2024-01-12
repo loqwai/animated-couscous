@@ -239,7 +239,7 @@ fn reset_vertical_impulse(mut impulses: Query<&mut ExternalImpulse>) {
 
 fn update_players_from_game_state_event(
     mut commands: Commands,
-    mut players: Query<(Entity, &Player, &mut Transform)>,
+    mut players: Query<(Entity, &Player, &mut Transform, &mut Velocity)>,
     mut events: EventReader<GameStateEvent>,
     config: Res<AppConfig>,
 ) {
@@ -248,15 +248,19 @@ fn update_players_from_game_state_event(
         Some(game_state) => {
             let mut player_entities_by_id: HashMap<String, Entity> = players
                 .iter_mut()
-                .map(|(entity, player, _)| (player.id.to_string(), entity))
+                .map(|(entity, player, _, _)| (player.id.to_string(), entity))
                 .collect();
 
             for player_state in game_state.players.iter() {
                 player_entities_by_id.remove(&player_state.id);
 
-                match players.iter_mut().find(|(_, b, _)| b.id == player_state.id) {
-                    Some((_, _, mut transform)) => {
+                match players
+                    .iter_mut()
+                    .find(|(_, b, _, _)| b.id == player_state.id)
+                {
+                    Some((_, _, mut transform, mut velocity)) => {
                         transform.translation = player_state.position.clone();
+                        velocity.linvel = player_state.velocity.clone();
                     }
                     None => {
                         commands.spawn(PlayerBundle::new(
@@ -285,7 +289,7 @@ fn update_players_from_game_state_event(
 
 fn update_bullets_from_game_state_event(
     mut commands: Commands,
-    mut bullets: Query<(Entity, &Bullet, &mut Transform)>,
+    mut bullets: Query<(Entity, &Bullet, &mut Transform, &mut Velocity)>,
     mut events: EventReader<GameStateEvent>,
 ) {
     match events.read().max_by(|a, b| a.timestamp.cmp(&b.timestamp)) {
@@ -293,15 +297,19 @@ fn update_bullets_from_game_state_event(
         Some(game_state) => {
             let mut bullet_entities_by_id: HashMap<String, Entity> = bullets
                 .iter_mut()
-                .map(|(entity, bullet, _)| (bullet.id.to_string(), entity))
+                .map(|(entity, bullet, _, _)| (bullet.id.to_string(), entity))
                 .collect();
 
             for bullet_state in game_state.bullets.iter() {
                 bullet_entities_by_id.remove(&bullet_state.id);
 
-                match bullets.iter_mut().find(|(_, b, _)| b.id == bullet_state.id) {
-                    Some((_, _, mut transform)) => {
+                match bullets
+                    .iter_mut()
+                    .find(|(_, b, _, _)| b.id == bullet_state.id)
+                {
+                    Some((_, _, mut transform, mut velocity)) => {
                         transform.set_if_neq(bullet_state.transform);
+                        velocity.linvel = bullet_state.velocity.clone();
                     }
                     None => {
                         commands.spawn(BulletBundle::new(
