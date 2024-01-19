@@ -1,11 +1,15 @@
 use bevy::{
     prelude::*,
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
+    text::Text2dBounds,
 };
 
-use crate::manage_state::{Bullet, Player, Shield};
+use crate::manage_state::{Bullet, Gun, Player, Shield};
 
 pub(crate) struct RenderPlugin;
+
+#[derive(Component)]
+pub(crate) struct AmmoCountDisplay;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
@@ -16,6 +20,8 @@ impl Plugin for RenderPlugin {
                 ensure_players_render,
                 ensure_bullets_render,
                 ensure_shields_render,
+                ensure_guns_render,
+                // render_ammo_count,
             ),
         );
     }
@@ -23,6 +29,42 @@ impl Plugin for RenderPlugin {
 
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
+}
+
+// fn render_ammo_count(
+//     mut commands: Commands,
+//     mut query: Query<(Entity, Gun, &mut Text, &Transform), With<AmmoCountDisplay>>,
+// ) {
+//     for (entity, mut text, transform) in query.iter_mut() {
+//         commands.entity(entity).insert(Text2dBundle {
+//             text: Text(format!("{}", text.0), TextStyle::default()),
+//             transform: transform.clone(),
+//             ..default()
+//         });
+//     }
+// }
+
+fn ensure_guns_render(
+    mut commands: Commands,
+    guns: Query<(Entity, &Transform), (With<Gun>, Without<Mesh2dHandle>)>,
+) {
+    for (entity, transform) in guns.iter() {
+        commands.entity(entity).insert((
+            AmmoCountDisplay,
+            Text2dBundle {
+                text: Text {
+                    sections: vec![TextSection::new("HI", TextStyle::default())],
+                    ..default()
+                },
+                text_2d_bounds: Text2dBounds {
+                    size: Vec2::new(100., 100.),
+                    ..default()
+                },
+                transform: transform.clone(),
+                ..default()
+            },
+        ));
+    }
 }
 
 fn ensure_players_render(

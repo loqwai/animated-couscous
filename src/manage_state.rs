@@ -141,7 +141,6 @@ pub(crate) struct ShieldTimeout(Timer);
 struct PlayerBundle {
     name: Name,
     player: Player,
-    gun: Gun,
     rigid_body: RigidBody,
     collider: Collider,
     transform: TransformBundle,
@@ -163,11 +162,6 @@ impl PlayerBundle {
             name: Name::new(format!("Player {}", player.client_id)),
             collider: Collider::ball(player.radius),
             player,
-            gun: Gun {
-                bullet_count: 3,
-                bullet_capacity: 3,
-                last_shot: None,
-            },
             shield_timeout: ShieldTimeout(Timer::new(
                 Duration::from_millis(shield_timeout),
                 TimerMode::Once,
@@ -262,18 +256,26 @@ fn update_players_from_game_state_event(
                         velocity.linvel = player_state.velocity.clone();
                     }
                     None => {
-                        commands.spawn(PlayerBundle::new(
-                            Player {
-                                id: player_state.id.clone(),
-                                spawn_id: player_state.spawn_id.clone(),
-                                client_id: player_state.client_id.clone(),
-                                radius: player_state.radius,
-                                color: player_state.color.clone(),
-                            },
-                            Transform::from_translation(player_state.position.clone()),
-                            Velocity::linear(player_state.velocity.clone()),
-                            config.shield_timeout,
-                        ));
+                        commands
+                            .spawn(PlayerBundle::new(
+                                Player {
+                                    id: player_state.id.clone(),
+                                    spawn_id: player_state.spawn_id.clone(),
+                                    client_id: player_state.client_id.clone(),
+                                    radius: player_state.radius,
+                                    color: player_state.color.clone(),
+                                },
+                                Transform::from_translation(player_state.position.clone()),
+                                Velocity::linear(player_state.velocity.clone()),
+                                config.shield_timeout,
+                            ))
+                            .with_children(|parent| {
+                                parent.spawn(Gun {
+                                    bullet_capacity: 3,
+                                    bullet_count: 3,
+                                    last_shot: None,
+                                });
+                            });
                     }
                 }
             }
@@ -357,18 +359,26 @@ fn handle_player_spawn_event(
         match unused_spawns_iter.next() {
             None => return,
             Some(spawn) => {
-                commands.spawn(PlayerBundle::new(
-                    Player {
-                        id: Uuid::new_v4().to_string(),
-                        spawn_id: spawn.id.to_string(),
-                        client_id: event.client_id.to_string(),
-                        radius: spawn.radius,
-                        color: spawn.color,
-                    },
-                    Transform::from_translation(spawn.position),
-                    Velocity::default(),
-                    config.shield_timeout,
-                ));
+                commands
+                    .spawn(PlayerBundle::new(
+                        Player {
+                            id: Uuid::new_v4().to_string(),
+                            spawn_id: spawn.id.to_string(),
+                            client_id: event.client_id.to_string(),
+                            radius: spawn.radius,
+                            color: spawn.color,
+                        },
+                        Transform::from_translation(spawn.position),
+                        Velocity::default(),
+                        config.shield_timeout,
+                    ))
+                    .with_children(|parent| {
+                        parent.spawn(Gun {
+                            bullet_capacity: 3,
+                            bullet_count: 3,
+                            last_shot: None,
+                        });
+                    });
             }
         }
     }
@@ -458,43 +468,54 @@ fn advance_shield_timeout(mut shield_timeouts: Query<&mut ShieldTimeout>, time: 
 fn handle_player_shoot_event(
     mut commands: Commands,
     mut events: EventReader<PlayerShootEvent>,
-    mut players: Query<(&Player, &Transform, &mut Gun)>,
+    mut guns: Query<&mut Gun>,
+    mut players: Query<(&Player, &Children, &Transform)>,
     config: Res<AppConfig>,
 ) {
-    // fswatch -o . | while read event; do pkill -f './client.sh'; ./client.sh &; done
-
     for event in events.read() {
         match players
             .iter_mut()
             .find(|p| p.0.client_id == event.client_id)
         {
             None => continue,
-            Some((player, transform, mut gun)) => {
-                if gun.bullet_count <= 0 {
-                    continue;
+            Some((player, children, transform)) => {
+                for child in children.iter() {
+                    match guns.get_mut(*child) {
+                        Err(_) => continue,
+                        Ok(mut gun) => {
+                            if gun.bullet_count <= 0 {
+                                continue;
+                            }
+
+                            gun.bullet_count -= 1;
+                            gun.last_shot = Some(Instant::now());
+
+                            let bullet_half_length = 20.;
+                            let offset = player.radius + bullet_half_length + config.fudge_factor;
+                            let bullet_position =
+                                transform.translation.xy() + event.aim.clamp_length_min(offset);
+
+                            let velocity = Vec2::from(event.aim.normalize() * config.bullet_speed);
+                            let rotation = Quat::from_rotation_z(velocity.y.atan2(velocity.x));
+
+                            commands.spawn(BulletBundle::new(
+                                Bullet {
+                                    id: Uuid::new_v4().to_string(),
+                                },
+                                Transform {
+                                    translation: Vec3::new(
+                                        bullet_position.x,
+                                        bullet_position.y,
+                                        0.1,
+                                    ),
+                                    rotation,
+                                    ..default()
+                                },
+                                velocity,
+                            ));
+                        }
+                    }
                 }
-                gun.bullet_count -= 1;
-                gun.last_shot = Some(Instant::now());
-
-                let bullet_half_length = 20.;
-                let offset = player.radius + bullet_half_length + config.fudge_factor;
-                let bullet_position =
-                    transform.translation.xy() + event.aim.clamp_length_min(offset);
-
-                let velocity = Vec2::from(event.aim.normalize() * config.bullet_speed);
-                let rotation = Quat::from_rotation_z(velocity.y.atan2(velocity.x));
-
-                commands.spawn(BulletBundle::new(
-                    Bullet {
-                        id: Uuid::new_v4().to_string(),
-                    },
-                    Transform {
-                        translation: Vec3::new(bullet_position.x, bullet_position.y, 0.1),
-                        rotation,
-                        ..default()
-                    },
-                    velocity,
-                ));
             }
         };
     }
