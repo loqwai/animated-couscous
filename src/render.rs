@@ -21,9 +21,14 @@ impl Plugin for RenderPlugin {
                 ensure_bullets_render,
                 ensure_shields_render,
                 ensure_guns_render,
-                // render_ammo_count,
+                render_ammo_count,
             ),
         );
+    }
+}
+fn render_ammo_count(mut query: Query<(&Gun, &mut Text), With<AmmoCountDisplay>>) {
+    for (gun, mut text) in query.iter_mut() {
+        text.sections[0].value = format!("{}", gun.bullet_count);
     }
 }
 
@@ -31,29 +36,23 @@ fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
 }
 
-// fn render_ammo_count(
-//     mut commands: Commands,
-//     mut query: Query<(Entity, Gun, &mut Text, &Transform), With<AmmoCountDisplay>>,
-// ) {
-//     for (entity, mut text, transform) in query.iter_mut() {
-//         commands.entity(entity).insert(Text2dBundle {
-//             text: Text(format!("{}", text.0), TextStyle::default()),
-//             transform: transform.clone(),
-//             ..default()
-//         });
-//     }
-// }
-
 fn ensure_guns_render(
     mut commands: Commands,
-    guns: Query<(Entity, &Transform), (With<Gun>, Without<Mesh2dHandle>)>,
+    guns: Query<(Entity, &Transform), (With<Gun>, Without<Text>)>,
 ) {
     for (entity, transform) in guns.iter() {
         commands.entity(entity).insert((
             AmmoCountDisplay,
             Text2dBundle {
                 text: Text {
-                    sections: vec![TextSection::new("HI", TextStyle::default())],
+                    sections: vec![TextSection::new(
+                        "HI",
+                        TextStyle {
+                            font_size: 20.,
+                            color: Color::WHITE,
+                            ..Default::default()
+                        },
+                    )],
                     ..default()
                 },
                 text_2d_bounds: Text2dBounds {

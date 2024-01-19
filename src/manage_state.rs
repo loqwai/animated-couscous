@@ -256,26 +256,7 @@ fn update_players_from_game_state_event(
                         velocity.linvel = player_state.velocity.clone();
                     }
                     None => {
-                        commands
-                            .spawn(PlayerBundle::new(
-                                Player {
-                                    id: player_state.id.clone(),
-                                    spawn_id: player_state.spawn_id.clone(),
-                                    client_id: player_state.client_id.clone(),
-                                    radius: player_state.radius,
-                                    color: player_state.color.clone(),
-                                },
-                                Transform::from_translation(player_state.position.clone()),
-                                Velocity::linear(player_state.velocity.clone()),
-                                config.shield_timeout,
-                            ))
-                            .with_children(|parent| {
-                                parent.spawn(Gun {
-                                    bullet_capacity: 3,
-                                    bullet_count: 3,
-                                    last_shot: None,
-                                });
-                            });
+                        spawn_player(&mut commands, player_state, &config);
                     }
                 }
             }
@@ -285,6 +266,36 @@ fn update_players_from_game_state_event(
             }
         }
     }
+}
+
+fn spawn_player(
+    commands: &mut Commands<'_, '_>,
+    player_state: &PlayerState,
+    config: &Res<'_, AppConfig>,
+) {
+    commands
+        .spawn(PlayerBundle::new(
+            Player {
+                id: player_state.id.clone(),
+                spawn_id: player_state.spawn_id.clone(),
+                client_id: player_state.client_id.clone(),
+                radius: player_state.radius,
+                color: player_state.color.clone(),
+            },
+            Transform::from_translation(player_state.position.clone()),
+            Velocity::linear(player_state.velocity.clone()),
+            config.shield_timeout,
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Gun {
+                    bullet_capacity: 3,
+                    bullet_count: 3,
+                    last_shot: None,
+                },
+                Transform::from_translation(Vec3::new(0., 0., 0.1)),
+            ));
+        });
 }
 
 fn update_bullets_from_game_state_event(
@@ -358,28 +369,19 @@ fn handle_player_spawn_event(
 
         match unused_spawns_iter.next() {
             None => return,
-            Some(spawn) => {
-                commands
-                    .spawn(PlayerBundle::new(
-                        Player {
-                            id: Uuid::new_v4().to_string(),
-                            spawn_id: spawn.id.to_string(),
-                            client_id: event.client_id.to_string(),
-                            radius: spawn.radius,
-                            color: spawn.color,
-                        },
-                        Transform::from_translation(spawn.position),
-                        Velocity::default(),
-                        config.shield_timeout,
-                    ))
-                    .with_children(|parent| {
-                        parent.spawn(Gun {
-                            bullet_capacity: 3,
-                            bullet_count: 3,
-                            last_shot: None,
-                        });
-                    });
-            }
+            Some(spawn) => spawn_player(
+                &mut commands,
+                &PlayerState {
+                    id: Uuid::new_v4().to_string(),
+                    spawn_id: spawn.id.to_string(),
+                    client_id: event.client_id.to_string(),
+                    radius: spawn.radius,
+                    color: spawn.color,
+                    position: spawn.position,
+                    velocity: Vec2::new(0., 0.),
+                },
+                &config,
+            ),
         }
     }
 }
