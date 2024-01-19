@@ -4,12 +4,18 @@ use bevy::{
     text::Text2dBounds,
 };
 
-use crate::manage_state::{Bullet, Gun, Player, Shield};
+use crate::manage_state::{Bullet, Gun, Health, Player, Shield};
 
 pub(crate) struct RenderPlugin;
 
 #[derive(Component)]
 pub(crate) struct AmmoCountDisplay;
+
+#[derive(Component)]
+pub(crate) struct HealthDisplay;
+
+#[derive(Component)]
+pub(crate) struct HasHealthDisplay;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
@@ -18,10 +24,12 @@ impl Plugin for RenderPlugin {
             Update,
             (
                 ensure_players_render,
+                ensure_things_with_health_have_health_display,
                 ensure_bullets_render,
                 ensure_shields_render,
                 ensure_guns_render,
                 render_ammo_count,
+                render_health,
             ),
         );
     }
@@ -30,6 +38,20 @@ impl Plugin for RenderPlugin {
 fn render_ammo_count(mut query: Query<(&Gun, &mut Text), With<AmmoCountDisplay>>) {
     for (gun, mut text) in query.iter_mut() {
         text.sections[0].value = format!("{}", gun.bullet_count);
+    }
+}
+
+fn render_health(
+    mut health_displays: Query<(&mut Text, &Parent), With<HealthDisplay>>,
+    healths: Query<&Health>,
+) {
+    for (mut text, parent) in health_displays.iter_mut() {
+        let health = match healths.get(**parent) {
+            Err(_) => continue,
+            Ok(health) => health,
+        };
+
+        text.sections[0].value = format!("{}", health.0);
     }
 }
 
@@ -80,6 +102,43 @@ fn ensure_players_render(
             transform: transform.clone(),
             ..default()
         });
+    }
+}
+
+fn ensure_things_with_health_have_health_display(
+    mut commands: Commands,
+    players: Query<Entity, (With<Health>, Without<HasHealthDisplay>)>,
+) {
+    for entity in players.iter() {
+        println!("Found a player with no health display");
+
+        commands
+            .entity(entity)
+            .with_children(|parent| {
+                parent.spawn((
+                    HealthDisplay,
+                    Text2dBundle {
+                        text: Text {
+                            sections: vec![TextSection::new(
+                                "HI",
+                                TextStyle {
+                                    font_size: 20.,
+                                    color: Color::WHITE,
+                                    ..Default::default()
+                                },
+                            )],
+                            ..default()
+                        },
+                        text_2d_bounds: Text2dBounds {
+                            size: Vec2::new(100., 100.),
+                            ..default()
+                        },
+                        transform: Transform::from_translation(Vec3::new(0., 50., 0.)),
+                        ..default()
+                    },
+                ));
+            })
+            .insert(HasHealthDisplay);
     }
 }
 

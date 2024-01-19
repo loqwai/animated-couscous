@@ -139,7 +139,7 @@ pub(crate) struct Player {
 pub(crate) struct ShieldTimeout(Timer);
 
 #[derive(Component, Reflect, Deref)]
-pub(crate) struct Health(i32);
+pub(crate) struct Health(pub(crate) i32);
 
 #[derive(Bundle)]
 struct PlayerBundle {
@@ -649,7 +649,7 @@ fn health_decreases_on_collision_with_bullets(
                     Ok(health) => health,
                     Err(_) => continue,
                 };
-                health.0 -= 34;
+                health.0 -= 40;
                 // commands.entity(player).insert(Despawn);
             }
         }
