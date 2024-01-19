@@ -50,7 +50,7 @@ fn main() {
         fudge_factor: 11.,
         bullet_speed: 1000.,
         player_move_speed: 80.,
-        fire_timeout: 500,
+        reload_timeout: 1000,
         jump_amount: 400.,
         gravity: 2000.,
         player_max_move_speed: 500.,
@@ -99,7 +99,7 @@ struct AppConfig {
 
     bullet_speed: f32,
     player_move_speed: f32,
-    fire_timeout: u64,
+    reload_timeout: u64,
     jump_amount: f32,
     gravity: f32,
 

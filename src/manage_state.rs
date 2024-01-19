@@ -2,7 +2,7 @@ use std::{f32::consts::PI, time::Duration};
 
 use bevy::{
     prelude::*,
-    utils::{hashbrown::HashMap, HashSet},
+    utils::{hashbrown::HashMap, HashSet, Instant},
 };
 use bevy_rapier2d::prelude::*;
 use uuid::Uuid;
@@ -42,6 +42,7 @@ impl Plugin for ManageStatePlugin {
             .add_event::<PlayerBlockEvent>()
             .add_event::<CollisionEvent>()
             .register_type::<Player>()
+            .register_type::<Gun>()
             .add_systems(Startup, (load_level, configure_gravity))
             .add_systems(
                 First,
@@ -50,7 +51,7 @@ impl Plugin for ManageStatePlugin {
                     reset_vertical_impulse,
                     update_players_from_game_state_event,
                     update_bullets_from_game_state_event,
-                    advance_fire_timeout,
+                    auto_reload_gun,
                     advance_shield_timeout,
                 ),
             )
@@ -78,7 +79,6 @@ impl Plugin for ManageStatePlugin {
             .add_systems(PostUpdate, despawn_things_that_need_despawning);
     }
 }
-
 #[derive(Event)]
 pub(crate) struct GameStateEvent {
     pub(crate) timestamp: u64,
@@ -102,10 +102,17 @@ pub(crate) struct BulletState {
     pub(crate) velocity: Vec2,
 }
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
 pub(crate) struct Shield {
     ttl: Timer,
     pub(crate) radius: f32,
+}
+
+#[derive(Component, Reflect)]
+pub(crate) struct Gun {
+    pub(crate) bullet_count: u32,
+    pub(crate) bullet_capacity: u32,
+    pub(crate) last_shot: Option<Instant>,
 }
 
 #[derive(Bundle)]
@@ -128,20 +135,17 @@ pub(crate) struct Player {
 }
 
 #[derive(Component, Reflect, Deref, DerefMut)]
-pub(crate) struct FireTimeout(Timer);
-
-#[derive(Component, Reflect, Deref, DerefMut)]
 pub(crate) struct ShieldTimeout(Timer);
 
 #[derive(Bundle)]
 struct PlayerBundle {
     name: Name,
     player: Player,
+    gun: Gun,
     rigid_body: RigidBody,
     collider: Collider,
     transform: TransformBundle,
     velocity: Velocity,
-    fire_timeout: FireTimeout,
     shield_timeout: ShieldTimeout,
     external_impulse: ExternalImpulse,
     locked_axes: LockedAxes,
@@ -153,17 +157,17 @@ impl PlayerBundle {
         player: Player,
         transform: Transform,
         velocity: Velocity,
-        fire_timeout: u64,
         shield_timeout: u64,
     ) -> Self {
         Self {
             name: Name::new(format!("Player {}", player.client_id)),
             collider: Collider::ball(player.radius),
             player,
-            fire_timeout: FireTimeout(Timer::new(
-                Duration::from_millis(fire_timeout),
-                TimerMode::Once,
-            )),
+            gun: Gun {
+                bullet_count: 3,
+                bullet_capacity: 3,
+                last_shot: None,
+            },
             shield_timeout: ShieldTimeout(Timer::new(
                 Duration::from_millis(shield_timeout),
                 TimerMode::Once,
@@ -268,7 +272,6 @@ fn update_players_from_game_state_event(
                             },
                             Transform::from_translation(player_state.position.clone()),
                             Velocity::linear(player_state.velocity.clone()),
-                            config.fire_timeout,
                             config.shield_timeout,
                         ));
                     }
@@ -364,7 +367,6 @@ fn handle_player_spawn_event(
                     },
                     Transform::from_translation(spawn.position),
                     Velocity::default(),
-                    config.fire_timeout,
                     config.shield_timeout,
                 ));
             }
@@ -437,9 +439,13 @@ fn handle_player_jump_event(
     }
 }
 
-fn advance_fire_timeout(mut fire_timeouts: Query<&mut FireTimeout>, time: Res<Time>) {
-    for mut fire_timeout in fire_timeouts.iter_mut() {
-        fire_timeout.tick(time.delta());
+fn auto_reload_gun(mut guns: Query<&mut Gun>) {
+    for mut gun in guns.iter_mut() {
+        if let Some(last_shot) = gun.last_shot {
+            if last_shot.elapsed().as_millis() > 1000 {
+                gun.bullet_count = gun.bullet_capacity;
+            }
+        }
     }
 }
 
@@ -452,21 +458,24 @@ fn advance_shield_timeout(mut shield_timeouts: Query<&mut ShieldTimeout>, time: 
 fn handle_player_shoot_event(
     mut commands: Commands,
     mut events: EventReader<PlayerShootEvent>,
-    mut players: Query<(&Player, &Transform, &mut FireTimeout)>,
+    mut players: Query<(&Player, &Transform, &mut Gun)>,
     config: Res<AppConfig>,
 ) {
+    // fswatch -o . | while read event; do pkill -f './client.sh'; ./client.sh &; done
+
     for event in events.read() {
         match players
             .iter_mut()
             .find(|p| p.0.client_id == event.client_id)
         {
             None => continue,
-            Some((player, transform, mut fire_timeout)) => {
-                if !fire_timeout.finished() {
+            Some((player, transform, mut gun)) => {
+                if gun.bullet_count <= 0 {
                     continue;
                 }
+                gun.bullet_count -= 1;
+                gun.last_shot = Some(Instant::now());
 
-                fire_timeout.reset();
                 let bullet_half_length = 20.;
                 let offset = player.radius + bullet_half_length + config.fudge_factor;
                 let bullet_position =
