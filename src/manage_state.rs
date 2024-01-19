@@ -71,7 +71,8 @@ impl Plugin for ManageStatePlugin {
                 (
                     arc_bullets,
                     bullets_despawn_on_collision_with_anything,
-                    players_despawn_on_collision_with_bullets,
+                    health_decreases_on_collision_with_bullets,
+                    despawn_things_with_0_or_less_health,
                     shields_despawn_on_timeout,
                     enable_or_disable_player_jumping,
                 ),
@@ -137,6 +138,9 @@ pub(crate) struct Player {
 #[derive(Component, Reflect, Deref, DerefMut)]
 pub(crate) struct ShieldTimeout(Timer);
 
+#[derive(Component, Reflect, Deref)]
+pub(crate) struct Health(i32);
+
 #[derive(Bundle)]
 struct PlayerBundle {
     name: Name,
@@ -149,6 +153,7 @@ struct PlayerBundle {
     external_impulse: ExternalImpulse,
     locked_axes: LockedAxes,
     active_events: ActiveEvents,
+    health: Health,
 }
 
 impl PlayerBundle {
@@ -172,6 +177,7 @@ impl PlayerBundle {
             locked_axes: LockedAxes::ROTATION_LOCKED,
             velocity,
             external_impulse: Default::default(),
+            health: Health(100),
         }
     }
 }
@@ -612,10 +618,10 @@ fn bullets_despawn_on_collision_with_anything(
     }
 }
 
-fn players_despawn_on_collision_with_bullets(
-    mut commands: Commands,
+fn health_decreases_on_collision_with_bullets(
     mut collision_events: EventReader<CollisionEvent>,
     players: Query<Entity, With<Player>>,
+    mut healths: Query<&mut Health, With<Player>>,
     bullets: Query<Entity, With<Bullet>>,
     shields: Query<&Parent, With<Shield>>,
 ) {
@@ -639,8 +645,21 @@ fn players_despawn_on_collision_with_bullets(
                     continue;
                 }
 
-                commands.entity(player).insert(Despawn);
+                let mut health = match healths.get_mut(player) {
+                    Ok(health) => health,
+                    Err(_) => continue,
+                };
+                health.0 -= 34;
+                // commands.entity(player).insert(Despawn);
             }
+        }
+    }
+}
+
+fn despawn_things_with_0_or_less_health(mut commands: Commands, healthy: Query<(Entity, &Health)>) {
+    for (entity, health) in healthy.iter() {
+        if health.0 <= 0 {
+            commands.entity(entity).insert(Despawn);
         }
     }
 }

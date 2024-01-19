@@ -26,6 +26,7 @@ impl Plugin for RenderPlugin {
         );
     }
 }
+
 fn render_ammo_count(mut query: Query<(&Gun, &mut Text), With<AmmoCountDisplay>>) {
     for (gun, mut text) in query.iter_mut() {
         text.sections[0].value = format!("{}", gun.bullet_count);
