@@ -7,6 +7,7 @@ mod input;
 mod level;
 mod manage_state;
 mod render;
+mod select_card_plugin;
 
 mod client;
 mod protos;
@@ -23,9 +24,16 @@ use input::InputPlugin;
 use manage_state::ManageStatePlugin;
 
 use render::RenderPlugin;
+use select_card_plugin::SelectCardPlugin;
 use server::ServerPlugin;
 use uuid::Uuid;
 
+#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
+pub(crate) enum GameState {
+    #[default]
+    PickCard,
+    Round,
+}
 fn main() {
     let window_offset: i32 = std::env::var("WINDOW_OFFSET")
         .unwrap_or("0".to_string())
@@ -60,6 +68,7 @@ fn main() {
         shield_duration: 500,
     })
     .register_type::<AppConfig>()
+    .add_state::<GameState>()
     .add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
             resolution: WindowResolution::new(width, height),
@@ -74,6 +83,7 @@ fn main() {
     .add_plugins(WorldInspectorPlugin::new())
     .add_plugins(RenderPlugin)
     .add_plugins(InputPlugin)
+    .add_plugins(SelectCardPlugin)
     .add_plugins(ManageStatePlugin::with_physics(enable_physics));
 
     if let Ok(hostname) = std::env::var("SERVE_ON") {

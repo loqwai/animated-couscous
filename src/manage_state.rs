@@ -13,7 +13,7 @@ use crate::{
         PlayerShootEvent, PlayerSpawnEvent,
     },
     level::{self, PlayerSpawn},
-    AppConfig,
+    AppConfig, GameState,
 };
 
 pub(crate) struct ManageStatePlugin {
@@ -29,8 +29,8 @@ impl ManageStatePlugin {
 impl Plugin for ManageStatePlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         if self.enable_physics {
-            app.add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
-                .add_plugins(RapierDebugRenderPlugin::default());
+            app.add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0));
+            // .add_plugins(RapierDebugRenderPlugin::default());
         }
 
         app.add_event::<GameStateEvent>()
@@ -43,7 +43,7 @@ impl Plugin for ManageStatePlugin {
             .add_event::<CollisionEvent>()
             .register_type::<Player>()
             .register_type::<Gun>()
-            .add_systems(Startup, (load_level, configure_gravity))
+            .add_systems(OnEnter(GameState::Round), (load_level, configure_gravity))
             .add_systems(
                 First,
                 (
@@ -53,7 +53,8 @@ impl Plugin for ManageStatePlugin {
                     update_bullets_from_game_state_event,
                     auto_reload_gun,
                     advance_shield_timeout,
-                ),
+                )
+                    .run_if(in_state(GameState::Round)),
             )
             .add_systems(
                 PreUpdate,
@@ -64,7 +65,8 @@ impl Plugin for ManageStatePlugin {
                     handle_player_jump_event,
                     handle_player_shoot_event,
                     handle_player_block_event,
-                ),
+                )
+                    .run_if(in_state(GameState::Round)),
             )
             .add_systems(
                 Update,
@@ -75,9 +77,13 @@ impl Plugin for ManageStatePlugin {
                     despawn_things_with_0_or_less_health,
                     shields_despawn_on_timeout,
                     enable_or_disable_player_jumping,
-                ),
+                )
+                    .run_if(in_state(GameState::Round)),
             )
-            .add_systems(PostUpdate, despawn_things_that_need_despawning);
+            .add_systems(
+                PostUpdate,
+                despawn_things_that_need_despawning.run_if(in_state(GameState::Round)),
+            );
     }
 }
 #[derive(Event)]

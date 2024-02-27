@@ -6,7 +6,7 @@ use crate::{
         PlayerShootEvent, PlayerSpawnEvent,
     },
     manage_state::Player,
-    AppConfig,
+    AppConfig, GameState,
 };
 
 pub(crate) struct InputPlugin;
@@ -28,7 +28,8 @@ impl Plugin for InputPlugin {
                     on_space_send_player_jump,
                     on_left_click_send_player_shoot_event,
                     on_right_click_send_player_block,
-                ),
+                )
+                    .run_if(in_state(GameState::Round)),
             );
     }
 }

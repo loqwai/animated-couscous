@@ -6,7 +6,7 @@ use bevy::{
 
 use crate::{
     manage_state::{Bullet, Gun, Health, Player, Shield},
-    AppConfig,
+    AppConfig, GameState,
 };
 
 pub(crate) struct RenderPlugin;
@@ -22,7 +22,7 @@ pub(crate) struct HasHealthDisplay;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup);
+        app.add_systems(OnEnter(GameState::Round), setup);
         app.add_systems(
             Update,
             (
@@ -33,7 +33,8 @@ impl Plugin for RenderPlugin {
                 ensure_guns_render,
                 render_ammo_count,
                 render_health,
-            ),
+            )
+                .run_if(in_state(GameState::Round)),
         );
     }
 }
