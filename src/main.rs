@@ -54,6 +54,7 @@ fn main() {
         jump_amount: 400.,
         gravity: 2000.,
         player_max_move_speed: 500.,
+        player_health: 10,
 
         shield_timeout: 1000,
         shield_duration: 500,
@@ -106,4 +107,5 @@ struct AppConfig {
     shield_timeout: u64,
     shield_duration: u64,
     player_max_move_speed: f32,
+    player_health: i32,
 }

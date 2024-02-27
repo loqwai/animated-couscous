@@ -4,7 +4,10 @@ use bevy::{
     text::Text2dBounds,
 };
 
-use crate::manage_state::{Bullet, Gun, Health, Player, Shield};
+use crate::{
+    manage_state::{Bullet, Gun, Health, Player, Shield},
+    AppConfig,
+};
 
 pub(crate) struct RenderPlugin;
 
@@ -44,6 +47,7 @@ fn render_ammo_count(mut query: Query<(&Gun, &mut Text), With<AmmoCountDisplay>>
 fn render_health(
     mut health_displays: Query<(&mut Text, &Parent), With<HealthDisplay>>,
     healths: Query<&Health>,
+    config: Res<AppConfig>,
 ) {
     for (mut text, parent) in health_displays.iter_mut() {
         let health = match healths.get(**parent) {
@@ -51,7 +55,7 @@ fn render_health(
             Ok(health) => health,
         };
 
-        text.sections[0].value = format!("{}", health.0);
+        text.sections[0].value = format!("{}/{}", health.0, config.player_health);
     }
 }
 
@@ -110,8 +114,6 @@ fn ensure_things_with_health_have_health_display(
     players: Query<Entity, (With<Health>, Without<HasHealthDisplay>)>,
 ) {
     for entity in players.iter() {
-        println!("Found a player with no health display");
-
         commands
             .entity(entity)
             .with_children(|parent| {
@@ -124,7 +126,7 @@ fn ensure_things_with_health_have_health_display(
                                 TextStyle {
                                     font_size: 20.,
                                     color: Color::WHITE,
-                                    ..Default::default()
+                                    ..default()
                                 },
                             )],
                             ..default()

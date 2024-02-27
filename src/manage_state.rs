@@ -162,6 +162,7 @@ impl PlayerBundle {
         transform: Transform,
         velocity: Velocity,
         shield_timeout: u64,
+        health: i32,
     ) -> Self {
         Self {
             name: Name::new(format!("Player {}", player.client_id)),
@@ -177,7 +178,7 @@ impl PlayerBundle {
             locked_axes: LockedAxes::ROTATION_LOCKED,
             velocity,
             external_impulse: Default::default(),
-            health: Health(100),
+            health: Health(health),
         }
     }
 }
@@ -291,6 +292,7 @@ fn spawn_player(
             Transform::from_translation(player_state.position.clone()),
             Velocity::linear(player_state.velocity.clone()),
             config.shield_timeout,
+            config.player_health,
         ))
         .with_children(|parent| {
             parent.spawn((
@@ -649,7 +651,7 @@ fn health_decreases_on_collision_with_bullets(
                     Ok(health) => health,
                     Err(_) => continue,
                 };
-                health.0 -= 40;
+                health.0 -= 3;
                 // commands.entity(player).insert(Despawn);
             }
         }
