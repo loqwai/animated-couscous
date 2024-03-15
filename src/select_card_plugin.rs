@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, text::Text2dBounds};
 
 use crate::GameState;
 
@@ -6,18 +6,35 @@ pub(crate) struct SelectCardPlugin;
 
 impl Plugin for SelectCardPlugin {
     fn build(&self, app: &mut App) {
-        // As this plugin is managing the splash screen, it will focus on the state `GameState::Splash`
-        app
-            // When entering the state, spawn everything needed for this screen
-            .add_systems(
-                Update,
-                switch_state_on_space.run_if(in_state(GameState::PickCard)),
-            );
-        // While in this state, run the `countdown` system
-        // .add_systems(Update, countdown.run_if(in_state(GameState::Splash)))
-        // // When exiting the state, despawn everything that was spawned for this screen
-        // .add_systems(OnExit(GameState::Splash), despawn_screen::<OnSplashScreen>);
+        // This stage allows both players to pick a card. The card modifies various abilities of the player.
+        app.add_systems(OnEnter(GameState::PickCard), setup);
+        app.add_systems(
+            Update,
+            switch_state_on_space.run_if(in_state(GameState::PickCard)),
+        );
     }
+}
+
+fn setup(mut commands: Commands) {
+    commands.spawn((Text2dBundle {
+        text: Text {
+            sections: vec![TextSection::new(
+                "HI",
+                TextStyle {
+                    font_size: 20.,
+                    color: Color::WHITE,
+                    ..default()
+                },
+            )],
+            ..default()
+        },
+        text_2d_bounds: Text2dBounds {
+            size: Vec2::new(100., 100.),
+            ..default()
+        },
+        transform: Transform::from_translation(Vec3::new(0., -100., 0.)),
+        ..default()
+    },));
 }
 
 fn switch_state_on_space(
