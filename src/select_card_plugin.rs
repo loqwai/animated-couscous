@@ -1,4 +1,4 @@
-use bevy::{prelude::*, text::Text2dBounds};
+use bevy::prelude::*;
 
 use crate::GameState;
 
@@ -16,25 +16,53 @@ impl Plugin for SelectCardPlugin {
 }
 
 fn setup(mut commands: Commands) {
-    commands.spawn((Text2dBundle {
-        text: Text {
-            sections: vec![TextSection::new(
-                "HI",
-                TextStyle {
-                    font_size: 20.,
-                    color: Color::WHITE,
-                    ..default()
+    commands.spawn(Camera2dBundle::default());
+
+    commands
+        .spawn(NodeBundle {
+            style: Style {
+                display: Display::Flex,
+                flex_direction: FlexDirection::ColumnReverse,
+                flex_grow: 0.,
+                flex_shrink: 0.,
+                flex_basis: Val::Px(100.),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with_children(|parent| {
+            parent.spawn((
+                Text2dBundle {
+                    text: Text::from_section(
+                        "Move Faster".to_string(),
+                        TextStyle {
+                            font_size: 20.,
+                            color: Color::WHITE,
+                            ..Default::default()
+                        },
+                    ),
+                    ..Default::default()
                 },
-            )],
-            ..default()
-        },
-        text_2d_bounds: Text2dBounds {
-            size: Vec2::new(100., 100.),
-            ..default()
-        },
-        transform: Transform::from_translation(Vec3::new(0., -100., 0.)),
-        ..default()
-    },));
+                Node::default(),
+                Style::default(),
+            ));
+
+            parent.spawn((
+                Text2dBundle {
+                    text: Text::from_section(
+                        "More Damage".to_string(),
+                        TextStyle {
+                            font_size: 20.,
+                            color: Color::WHITE,
+                            ..Default::default()
+                        },
+                    ),
+                    ..Default::default()
+                },
+                Node::default(),
+                Style::default(),
+            ));
+        });
 }
 
 fn switch_state_on_space(
