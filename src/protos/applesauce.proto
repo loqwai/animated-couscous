@@ -4,9 +4,12 @@ message GameState {
   uint64 timestamp = 1;
   repeated Player players = 2;
   repeated Bullet bullets = 3;
-  // repeated Input inputs = 4;
 }
 
+// The server sends this message to the client to tell it what its identity
+message Identity {
+  string client_id = 1;
+}
 
 message Input {
   string client_id = 1;

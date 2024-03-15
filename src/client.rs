@@ -11,6 +11,7 @@ use crate::{
     },
     manage_state::GameStateEvent,
     protos::generated::applesauce,
+    AppConfig,
 };
 
 pub(crate) struct ClientPlugin {
@@ -33,7 +34,11 @@ impl Plugin for ClientPlugin {
         .add_event::<GameStateEvent>()
         .add_systems(
             Update,
-            (proxy_game_state_from_network, write_inputs_to_network),
+            (
+                proxy_game_state_from_network,
+                write_inputs_to_network,
+                update_client_id_from_identity,
+            ),
         );
     }
 }
@@ -53,19 +58,28 @@ struct LatestEventTime(Option<u64>);
 struct ReceiveGameState(Receiver<applesauce::GameState>);
 
 #[derive(Resource, Deref)]
+struct ReceiveIdentity(Receiver<applesauce::Identity>);
+
+#[derive(Resource, Deref)]
 struct SendInput(Sender<applesauce::Input>);
 
 fn connect_to_server(mut commands: Commands, config: Res<ClientConfig>) {
     let stream = TcpStream::connect(config.hostname.clone()).unwrap();
+    let (tx_identity, rx_identity) = crossbeam_channel::unbounded::<applesauce::Identity>();
     let (tx_game_state, rx_game_state) = crossbeam_channel::unbounded::<applesauce::GameState>();
     let (tx_input, rx_input) = crossbeam_channel::unbounded::<applesauce::Input>();
 
+    commands.insert_resource(ReceiveIdentity(rx_identity));
     commands.insert_resource(ReceiveGameState(rx_game_state));
     commands.insert_resource(SendInput(tx_input));
 
     let mut recv_stream = stream.try_clone().unwrap();
     thread::spawn(move || {
         let mut coded_stream = CodedInputStream::new(&mut recv_stream);
+
+        // the first message is an Identity message letting us know what our client id is
+        let identity: applesauce::Identity = coded_stream.read_message().unwrap();
+        tx_identity.send(identity).unwrap();
 
         loop {
             if coded_stream.eof().unwrap() {
@@ -84,6 +98,18 @@ fn connect_to_server(mut commands: Commands, config: Res<ClientConfig>) {
             .write_length_delimited_to_writer(&mut send_stream)
             .unwrap();
     });
+}
+
+fn update_client_id_from_identity(
+    identity: Res<ReceiveIdentity>,
+    mut app_config: ResMut<AppConfig>,
+) {
+    match identity.try_iter().next() {
+        None => return,
+        Some(identity) => {
+            app_config.client_id = identity.client_id;
+        }
+    }
 }
 
 fn proxy_game_state_from_network(

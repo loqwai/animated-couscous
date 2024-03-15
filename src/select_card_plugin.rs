@@ -1,6 +1,9 @@
 use crate::GameState;
 use bevy::prelude::*;
 
+#[derive(Component, Reflect)]
+struct SelectCardUi;
+
 pub(crate) struct SelectCardPlugin;
 
 impl Plugin for SelectCardPlugin {
@@ -11,23 +14,25 @@ impl Plugin for SelectCardPlugin {
             Update,
             (switch_state_on_space, button_system).run_if(in_state(GameState::PickCard)),
         );
+        app.add_systems(OnExit(GameState::PickCard), teardown);
     }
 }
 
 fn setup(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
-
     commands
-        .spawn(NodeBundle {
-            style: Style {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
-            ..Default::default()
-        })
+            SelectCardUi,
+        ))
         .with_children(|parent| {
             parent
                 .spawn(ButtonBundle {
@@ -81,6 +86,12 @@ fn setup(mut commands: Commands) {
         });
 }
 
+fn teardown(mut commands: Commands, ui_elements: Query<Entity, With<SelectCardUi>>) {
+    ui_elements.for_each(|e| {
+        commands.entity(e).despawn_recursive();
+    })
+}
+
 fn switch_state_on_space(
     keyboard_input: Res<Input<KeyCode>>,
     mut state: ResMut<NextState<GameState>>,
@@ -103,6 +114,8 @@ fn button_system(
     for (interaction, mut color, mut border_color) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
+                // get the child that has a 'powerup' tag
+
                 *color = PRESSED_BUTTON.into();
                 border_color.0 = Color::RED;
             }

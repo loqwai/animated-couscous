@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate derive_error;
 
-// mod game_state;
 mod events;
 mod input;
 mod level;
@@ -16,18 +15,15 @@ mod server;
 use bevy::prelude::*;
 use bevy::window::WindowPlugin;
 use bevy::window::WindowResolution;
-use bevy::winit::WinitSettings;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use client::ClientPlugin;
 use input::InputPlugin;
-// use game_state::GameStateEvent;
 use manage_state::ManageStatePlugin;
 
 use render::RenderPlugin;
 use select_card_plugin::SelectCardPlugin;
 use server::ServerPlugin;
-use uuid::Uuid;
 
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
 pub(crate) enum GameState {
@@ -54,7 +50,7 @@ fn main() {
         width,
         height,
 
-        client_id: Uuid::new_v4().to_string(),
+        client_id: "unknown".to_string(),
         // not implemented yet
         fudge_factor: 11.,
         bullet_speed: 1000.,
@@ -81,7 +77,6 @@ fn main() {
         }),
         ..Default::default()
     }))
-    .insert_resource(WinitSettings::desktop_app())
     .add_plugins(WorldInspectorPlugin::new())
     .add_plugins(RenderPlugin)
     .add_plugins(InputPlugin)
@@ -95,8 +90,13 @@ fn main() {
     if let Ok(hostname) = std::env::var("CONNECT_TO") {
         app.add_plugins(ClientPlugin::connect_to(hostname));
     }
+    app.add_systems(Startup, setup);
 
     app.run();
+}
+
+fn setup(mut commands: Commands) {
+    commands.spawn(Camera2dBundle::default());
 }
 
 #[derive(Resource, Reflect)]
@@ -120,4 +120,10 @@ struct AppConfig {
     shield_duration: u64,
     player_max_move_speed: f32,
     player_health: i32,
+}
+
+#[derive(Component, Reflect)]
+pub(crate) struct Player {
+    id: String,
+    client_id: String,
 }

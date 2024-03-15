@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use bevy_rapier2d::dynamics::Velocity;
 use crossbeam_channel::{Receiver, Sender};
 use protobuf::{CodedInputStream, Message};
+use uuid::Uuid;
 
 use crate::{
     events::{
@@ -65,13 +66,21 @@ fn serve(mut commands: Commands, config: Res<ServerConfig>) {
 
     thread::spawn(move || {
         for stream in listener.incoming() {
-            let stream = stream.unwrap();
+            let mut stream = stream.unwrap();
 
             let recv_stream = stream.try_clone().unwrap();
             let tx_input = tx_input.clone();
 
             tx_stream.send(stream.try_clone().unwrap()).unwrap();
             thread::spawn(move || read_network_input_events(recv_stream, tx_input));
+
+            println!("Writing identity to stream");
+            applesauce::Identity {
+                client_id: Uuid::new_v4().to_string(),
+                ..Default::default()
+            }
+            .write_length_delimited_to_writer(&mut stream)
+            .unwrap();
         }
     });
 

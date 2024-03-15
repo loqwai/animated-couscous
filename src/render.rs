@@ -22,7 +22,6 @@ pub(crate) struct HasHealthDisplay;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::Round), setup);
         app.add_systems(
             Update,
             (
@@ -58,10 +57,6 @@ fn render_health(
 
         text.sections[0].value = format!("{}/{}", health.0, config.player_health);
     }
-}
-
-fn setup(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
 }
 
 fn ensure_guns_render(
