@@ -16,6 +16,7 @@ mod server;
 use bevy::prelude::*;
 use bevy::window::WindowPlugin;
 use bevy::window::WindowResolution;
+use bevy::winit::WinitSettings;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use client::ClientPlugin;
@@ -80,6 +81,7 @@ fn main() {
         }),
         ..Default::default()
     }))
+    .insert_resource(WinitSettings::desktop_app())
     .add_plugins(WorldInspectorPlugin::new())
     .add_plugins(RenderPlugin)
     .add_plugins(InputPlugin)
