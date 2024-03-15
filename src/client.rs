@@ -34,8 +34,7 @@ impl Plugin for ClientPlugin {
         .add_systems(
             Update,
             (proxy_game_state_from_network, write_inputs_to_network),
-        )
-        .add_systems(PostUpdate, despawn_things_that_need_despawning);
+        );
     }
 }
 
@@ -138,14 +137,5 @@ fn write_inputs_to_network(
 
     for event in block_events.read() {
         sender.send(event.into()).unwrap();
-    }
-}
-
-fn despawn_things_that_need_despawning(
-    mut commands: Commands,
-    entities: Query<Entity, With<Despawn>>,
-) {
-    for entity in entities.iter() {
-        commands.entity(entity).despawn_recursive();
     }
 }
