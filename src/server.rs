@@ -16,6 +16,7 @@ use crate::{
     },
     manage_state::{Bullet, Player},
     protos::generated::applesauce,
+    AppConfig,
 };
 
 pub(crate) struct ServerPlugin {
@@ -33,6 +34,7 @@ impl Plugin for ServerPlugin {
         app.insert_resource(ServerConfig {
             hostname: self.hostname.clone(),
         })
+        .add_systems(Startup, assign_client_id)
         .add_systems(Startup, serve)
         .add_systems(PreUpdate, handle_identity)
         .add_systems(PreUpdate, recv_input)
@@ -208,4 +210,11 @@ fn handle_identity(mut commands: Commands, receiver: Res<IdentityReceiver>) {
             client_id: identity.client_id,
         });
     })
+}
+
+fn assign_client_id(mut commands: Commands, mut app_config: ResMut<AppConfig>) {
+    app_config.client_id = Uuid::new_v4().to_string();
+    commands.spawn(crate::Player {
+        client_id: app_config.client_id.to_string(),
+    });
 }

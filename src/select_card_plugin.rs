@@ -1,8 +1,11 @@
-use crate::GameState;
+use crate::{AppConfig, GameState};
 use bevy::prelude::*;
 
 #[derive(Component, Reflect)]
 struct SelectCardUi;
+
+#[derive(Component, Reflect)]
+struct MoveFaster;
 
 pub(crate) struct SelectCardPlugin;
 
@@ -106,15 +109,31 @@ const HOVERED_BUTTON: Color = Color::rgb(0.25, 0.25, 0.25);
 const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
 
 fn button_system(
+    mut commands: Commands,
+    config: Res<AppConfig>,
     mut interaction_query: Query<
         (&Interaction, &mut BackgroundColor, &mut BorderColor),
         (Changed<Interaction>, With<Button>),
     >,
+    players: Query<(Entity, &crate::Player)>,
+    mut state: ResMut<NextState<GameState>>,
 ) {
     for (interaction, mut color, mut border_color) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
-                // get the child that has a 'powerup' tag
+                let player = players
+                    .iter()
+                    .find(|(_, p)| p.client_id == config.client_id);
+
+                match player {
+                    None => println!("We could not find ourselves: {}", config.client_id),
+                    Some((entity, _)) => {
+                        commands.entity(entity).with_children(|parent| {
+                            parent.spawn(MoveFaster);
+                        });
+                        state.set(GameState::Round);
+                    }
+                };
 
                 *color = PRESSED_BUTTON.into();
                 border_color.0 = Color::RED;
