@@ -124,6 +124,5 @@ struct AppConfig {
 
 #[derive(Component, Reflect)]
 pub(crate) struct Player {
-    id: String,
     client_id: String,
 }

@@ -34,6 +34,7 @@ impl Plugin for ServerPlugin {
             hostname: self.hostname.clone(),
         })
         .add_systems(Startup, serve)
+        .add_systems(PreUpdate, handle_identity)
         .add_systems(PreUpdate, recv_input)
         .add_systems(PostUpdate, send_state);
     }
@@ -53,6 +54,9 @@ struct GameStateSender(Sender<applesauce::GameState>);
 #[derive(Resource, Deref)]
 struct InputReceiver(Receiver<applesauce::Input>);
 
+#[derive(Resource, Deref)]
+struct IdentityReceiver(Receiver<applesauce::Identity>);
+
 fn serve(mut commands: Commands, config: Res<ServerConfig>) {
     let listener = TcpListener::bind(config.hostname.clone()).unwrap();
 
@@ -61,6 +65,9 @@ fn serve(mut commands: Commands, config: Res<ServerConfig>) {
 
     let (tx_input, rx_input) = crossbeam_channel::unbounded::<applesauce::Input>();
     commands.insert_resource(InputReceiver(rx_input));
+
+    let (tx_identity, rx_identity) = crossbeam_channel::unbounded::<applesauce::Identity>();
+    commands.insert_resource(IdentityReceiver(rx_identity));
 
     let (tx_stream, rx_stream) = crossbeam_channel::unbounded::<TcpStream>();
 
@@ -74,13 +81,16 @@ fn serve(mut commands: Commands, config: Res<ServerConfig>) {
             tx_stream.send(stream.try_clone().unwrap()).unwrap();
             thread::spawn(move || read_network_input_events(recv_stream, tx_input));
 
-            println!("Writing identity to stream");
-            applesauce::Identity {
+            let identity = applesauce::Identity {
                 client_id: Uuid::new_v4().to_string(),
                 ..Default::default()
-            }
-            .write_length_delimited_to_writer(&mut stream)
-            .unwrap();
+            };
+
+            tx_identity.send(identity.clone()).unwrap();
+
+            identity
+                .write_length_delimited_to_writer(&mut stream)
+                .unwrap();
         }
     });
 
@@ -190,4 +200,12 @@ fn send_state(
             special_fields: default(),
         })
         .unwrap();
+}
+
+fn handle_identity(mut commands: Commands, receiver: Res<IdentityReceiver>) {
+    receiver.try_iter().for_each(|identity| {
+        commands.spawn(crate::Player {
+            client_id: identity.client_id,
+        });
+    })
 }
