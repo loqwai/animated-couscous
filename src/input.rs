@@ -36,7 +36,7 @@ impl Plugin for InputPlugin {
 
 fn on_enter_send_player_spawn(
     config: Res<AppConfig>,
-    keyboard_input: Res<Input<KeyCode>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     mut events: EventWriter<PlayerSpawnEvent>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Return) {
@@ -49,7 +49,7 @@ fn on_enter_send_player_spawn(
 
 fn on_a_send_player_move_left(
     config: Res<AppConfig>,
-    keyboard_input: Res<Input<KeyCode>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     mut events: EventWriter<PlayerMoveLeftEvent>,
 ) {
     if keyboard_input.pressed(KeyCode::A) {
@@ -62,7 +62,7 @@ fn on_a_send_player_move_left(
 
 fn on_d_send_player_move_right(
     config: Res<AppConfig>,
-    keyboard_input: Res<Input<KeyCode>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     mut events: EventWriter<PlayerMoveRightEvent>,
 ) {
     if keyboard_input.pressed(KeyCode::D) {
@@ -75,7 +75,7 @@ fn on_d_send_player_move_right(
 
 fn on_space_send_player_jump(
     config: Res<AppConfig>,
-    keyboard_input: Res<Input<KeyCode>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     mut events: EventWriter<PlayerJumpEvent>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Space) {
@@ -88,7 +88,7 @@ fn on_space_send_player_jump(
 
 fn on_left_click_send_player_shoot_event(
     config: Res<AppConfig>,
-    mouse_button_input: Res<Input<MouseButton>>,
+    mouse_button_input: Res<ButtonInput<MouseButton>>,
     events: EventWriter<PlayerShootEvent>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
@@ -106,7 +106,7 @@ fn on_left_click_send_player_shoot_event(
 
 fn on_left_click_send_player_shoot_event_fallible(
     config: Res<AppConfig>,
-    mouse_button_input: Res<Input<MouseButton>>,
+    mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut events: EventWriter<PlayerShootEvent>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
@@ -141,7 +141,7 @@ fn on_left_click_send_player_shoot_event_fallible(
 
 fn on_right_click_send_player_block(
     config: Res<AppConfig>,
-    mouse_button_input: Res<Input<MouseButton>>,
+    mouse_button_input: Res<ButtonInput<MouseButton>>,
     mut events: EventWriter<PlayerBlockEvent>,
 ) {
     if !mouse_button_input.just_pressed(MouseButton::Right) {

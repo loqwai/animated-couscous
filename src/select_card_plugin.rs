@@ -96,7 +96,7 @@ fn teardown(mut commands: Commands, ui_elements: Query<Entity, With<SelectCardUi
 }
 
 fn switch_state_on_space(
-    keyboard_input: Res<Input<KeyCode>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<NextState<GameState>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Space) {
