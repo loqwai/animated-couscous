@@ -39,7 +39,7 @@ fn on_enter_send_player_spawn(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut events: EventWriter<PlayerSpawnEvent>,
 ) {
-    if keyboard_input.just_pressed(KeyCode::Return) {
+    if keyboard_input.just_pressed(KeyCode::Enter) {
         events.send(PlayerSpawnEvent {
             id: uuid::Uuid::new_v4().to_string(),
             client_id: config.client_id.to_string(),
@@ -52,7 +52,7 @@ fn on_a_send_player_move_left(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut events: EventWriter<PlayerMoveLeftEvent>,
 ) {
-    if keyboard_input.pressed(KeyCode::A) {
+    if keyboard_input.pressed(KeyCode::KeyA) {
         events.send(PlayerMoveLeftEvent {
             id: uuid::Uuid::new_v4().to_string(),
             client_id: config.client_id.to_string(),
@@ -65,7 +65,7 @@ fn on_d_send_player_move_right(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut events: EventWriter<PlayerMoveRightEvent>,
 ) {
-    if keyboard_input.pressed(KeyCode::D) {
+    if keyboard_input.pressed(KeyCode::KeyD) {
         events.send(PlayerMoveRightEvent {
             id: uuid::Uuid::new_v4().to_string(),
             client_id: config.client_id.to_string(),
