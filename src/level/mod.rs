@@ -184,10 +184,7 @@ impl<'a> Loader<'a> {
             .commands
             .spawn((
                 MaterialMesh2dBundle {
-                    mesh: self
-                        .meshes
-                        .add(shape::Quad::new(Vec2::new(width, height)).into())
-                        .into(),
+                    mesh: self.meshes.add(Rectangle::new(width, height)).into(),
                     material: self.materials.add(ColorMaterial::from(fill)),
                     transform: Transform::from_translation(Vec3::new(x, y, z)),
                     ..default()
@@ -255,7 +252,7 @@ impl<'a> Loader<'a> {
             .commands
             .spawn((
                 MaterialMesh2dBundle {
-                    mesh: self.meshes.add(shape::Circle::new(radius).into()).into(),
+                    mesh: self.meshes.add(Circle::new(radius)).into(),
                     material: self.materials.add(ColorMaterial::from(color)),
                     transform: Transform::from_translation(position),
                     ..default()

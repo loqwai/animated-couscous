@@ -97,7 +97,7 @@ fn ensure_players_render(
 ) {
     for (entity, player, transform) in players.iter() {
         commands.entity(entity).insert(MaterialMesh2dBundle {
-            mesh: meshes.add(shape::Circle::new(player.radius).into()).into(),
+            mesh: meshes.add(Circle::new(player.radius)).into(),
             material: materials.add(ColorMaterial::from(player.color)),
             transform: transform.clone(),
             ..default()
@@ -148,9 +148,7 @@ fn ensure_bullets_render(
 ) {
     for (entity, transform) in bullets.iter() {
         commands.entity(entity).insert(MaterialMesh2dBundle {
-            mesh: meshes
-                .add(shape::Quad::new(Vec2::new(40., 10.)).into())
-                .into(),
+            mesh: meshes.add(Rectangle::new(40., 10.)).into(),
             material: materials.add(ColorMaterial::from(Color::WHITE)),
             transform: transform.clone(),
             ..default()
@@ -166,7 +164,7 @@ fn ensure_shields_render(
 ) {
     for (entity, shield, transform) in shields.iter() {
         commands.entity(entity).insert(MaterialMesh2dBundle {
-            mesh: meshes.add(shape::Circle::new(shield.radius).into()).into(),
+            mesh: meshes.add(Circle::new(shield.radius)).into(),
             material: materials.add(ColorMaterial::from(Color::rgba(1., 1., 1., 0.1))),
             transform: transform.clone(),
             ..default()
