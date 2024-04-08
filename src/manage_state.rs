@@ -455,7 +455,7 @@ fn handle_player_jump_event(
         {
             None => continue,
             Some((entity, _, mut impulse)) => {
-                if rapier_context.contacts_with(entity).count() == 0 {
+                if rapier_context.contact_pairs_with(entity).count() == 0 {
                     continue;
                 };
 

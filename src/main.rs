@@ -65,7 +65,7 @@ fn main() {
         shield_duration: 500,
     })
     .register_type::<AppConfig>()
-    .add_state::<GameState>()
+    .init_state::<GameState>()
     .add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
             resolution: WindowResolution::new(width, height),

@@ -90,7 +90,7 @@ fn setup(mut commands: Commands) {
 }
 
 fn teardown(mut commands: Commands, ui_elements: Query<Entity, With<SelectCardUi>>) {
-    ui_elements.for_each(|e| {
+    ui_elements.iter().for_each(|e| {
         commands.entity(e).despawn_recursive();
     })
 }
