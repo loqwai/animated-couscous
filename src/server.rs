@@ -136,33 +136,43 @@ fn recv_input(
     mut block_events: EventWriter<PlayerBlockEvent>,
 ) {
     receiver.try_iter().for_each(|input| match input.inner {
-        Some(applesauce::input::Inner::Spawn(_)) => spawn_events.send(PlayerSpawnEvent {
-            id: input.id,
-            client_id: input.client_id,
-        }),
-        Some(applesauce::input::Inner::MoveLeft(_)) => move_left_events.send(PlayerMoveLeftEvent {
-            id: input.id,
-            client_id: input.client_id,
-        }),
+        Some(applesauce::input::Inner::Spawn(_)) => {
+            spawn_events.send(PlayerSpawnEvent {
+                id: input.id,
+                client_id: input.client_id,
+            });
+        }
+        Some(applesauce::input::Inner::MoveLeft(_)) => {
+            move_left_events.send(PlayerMoveLeftEvent {
+                id: input.id,
+                client_id: input.client_id,
+            });
+        }
         Some(applesauce::input::Inner::MoveRight(_)) => {
             move_right_events.send(PlayerMoveRightEvent {
                 id: input.id,
                 client_id: input.client_id,
-            })
+            });
         }
-        Some(applesauce::input::Inner::Jump(_)) => jump_events.send(PlayerJumpEvent {
-            id: input.id,
-            client_id: input.client_id,
-        }),
-        Some(applesauce::input::Inner::Shoot(shoot)) => shoot_events.send(PlayerShootEvent {
-            id: input.id,
-            client_id: input.client_id,
-            aim: shoot.aim.unwrap().into(),
-        }),
-        Some(applesauce::input::Inner::Block(_)) => block_events.send(PlayerBlockEvent {
-            id: input.id,
-            client_id: input.client_id,
-        }),
+        Some(applesauce::input::Inner::Jump(_)) => {
+            jump_events.send(PlayerJumpEvent {
+                id: input.id,
+                client_id: input.client_id,
+            });
+        }
+        Some(applesauce::input::Inner::Shoot(shoot)) => {
+            shoot_events.send(PlayerShootEvent {
+                id: input.id,
+                client_id: input.client_id,
+                aim: shoot.aim.unwrap().into(),
+            });
+        }
+        Some(applesauce::input::Inner::Block(_)) => {
+            block_events.send(PlayerBlockEvent {
+                id: input.id,
+                client_id: input.client_id,
+            });
+        }
         None => {}
     });
 }
